@@ -1,0 +1,17 @@
+/local/modules/pragma.import_module/
+    ├── logs/
+    ├── install/
+    │   └── index.php
+    ├── lib/
+    │   ├── agent/
+    │   │   ├── CheckAgent.php
+    │   │   └── ImportAgent.php
+    │   ├── EventHandlers.php
+    │   ├── Logger.php
+    │   ├── ImportHelper.php
+    │   ├── ajax.php
+    │   └── css/
+    │       └── styles.css
+    ├── options.php
+    ├── include.php
+    └── default_option.php

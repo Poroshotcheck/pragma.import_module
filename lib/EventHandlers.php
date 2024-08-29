@@ -8,23 +8,29 @@ class EventHandlers
 {
     public static function onBeforeCatalogImport1CHandler()
     {
-        // Получаем текущее время
+        $moduleId = 'pragma.import_module';
         $currentTime = time();
 
         // Сохраняем время начала импорта в опцию модуля
-        Option::set('pragma.import_module', 'import_start_time', $currentTime);
+        Option::set($moduleId, 'import_start_time', $currentTime);
 
         // Инкрементируем счетчик запусков импорта
-        $importStartCount = Option::get('pragma.import_module', 'import_start_count', 0);
-        Option::set('pragma.import_module', 'import_start_count', $importStartCount + 1);
+        $importStartCount = Option::get($moduleId, 'import_start_count', 0);
+        Option::set($moduleId, 'import_start_count', $importStartCount + 1);
+
+        // Активируем CheckAgent, если он не активен
+        $checkAgentId = Option::get($moduleId, "CHECK_AGENT_ID", 0);
+        if ($checkAgentId > 0) {
+            \CAgent::Update($checkAgentId, array("ACTIVE" => "Y"));
+        }
     }
 
     public static function onSuccessCatalogImport1CHandler()
     {
+        $moduleId = 'pragma.import_module';
+
         // Инкрементируем счетчик успешных завершений импорта
-        $importSuccessCount = Option::get('pragma.import_module', 'import_success_count', 0);
-        Option::set('pragma.import_module', 'import_success_count', $importSuccessCount + 1);
+        $importSuccessCount = Option::get($moduleId, 'import_success_count', 0);
+        Option::set($moduleId, 'import_success_count', $importSuccessCount + 1);
     }
 }
-
-?>

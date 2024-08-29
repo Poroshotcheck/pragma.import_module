@@ -1,80 +1,127 @@
 <?php
-use Bitrix\Main\Localization\Loc;
+
 use Bitrix\Main\ModuleManager;
 use Bitrix\Main\Config\Option;
-
-Loc::loadMessages(__FILE__);
+use Bitrix\Main\EventManager;
 
 class pragma_import_module extends CModule
 {
+    public $MODULE_ID = "pragma.import_module";
+    public $MODULE_VERSION;
+    public $MODULE_VERSION_DATE;
+    public $MODULE_NAME;
+    public $MODULE_DESCRIPTION;
+
     public function __construct()
     {
         $arModuleVersion = array();
-        include(__DIR__.'/version.php');
-
-        $this->MODULE_ID = 'pragma.import_module';
-        $this->MODULE_VERSION = $arModuleVersion['VERSION'];
-        $this->MODULE_VERSION_DATE = $arModuleVersion['VERSION_DATE'];
-        $this->MODULE_NAME = Loc::getMessage('PRAGMA_IMPORT_MODULE_NAME');
-        $this->MODULE_DESCRIPTION = Loc::getMessage('PRAGMA_IMPORT_MODULE_DESCRIPTION');
-        $this->PARTNER_NAME = Loc::getMessage('PRAGMA_IMPORT_MODULE_PARTNER_NAME');
-        $this->PARTNER_URI = Loc::getMessage('PRAGMA_IMPORT_MODULE_PARTNER_URI');
+        include(__DIR__ . "/version.php");
+        
+        $this->MODULE_VERSION = $arModuleVersion["VERSION"];
+        $this->MODULE_VERSION_DATE = $arModuleVersion["VERSION_DATE"];
+        
+        $this->MODULE_NAME = GetMessage("PRAGMA_IMPORT_MODULE_NAME");
+        $this->MODULE_DESCRIPTION = GetMessage("PRAGMA_IMPORT_MODULE_DESCRIPTION");
     }
 
     public function DoInstall()
     {
         ModuleManager::registerModule($this->MODULE_ID);
         $this->InstallEvents();
-        $this->InstallDB();
         $this->InstallAgents();
     }
 
     public function DoUninstall()
     {
-        $this->UnInstallAgents();
-        $this->UnInstallDB();
         $this->UnInstallEvents();
+        $this->UnInstallAgents();
         ModuleManager::unRegisterModule($this->MODULE_ID);
     }
 
-    function InstallDB()
+    public function InstallEvents()
     {
-        // Здесь больше не нужно устанавливать значение по умолчанию для IMPORT_TIMEOUT
-    }
+        EventManager::getInstance()->registerEventHandler(
+            "catalog",
+            "OnBeforeIBlockImport1C",
+            $this->MODULE_ID,
+            "Pragma\\ImportModule\\EventHandlers",
+            "onBeforeCatalogImport1CHandler"
+        );
 
-    function UnInstallDB()
-    {
-        Option::delete($this->MODULE_ID);
-    }
-
-    function InstallEvents()
-    {
-        RegisterModuleDependences("catalog", "OnBeforeCatalogImport1C", $this->MODULE_ID, "Pragma\\ImportModule\\EventHandlers", "onBeforeCatalogImport1CHandler");
-        RegisterModuleDependences("catalog", "OnSuccessCatalogImport1C", $this->MODULE_ID, "Pragma\\ImportModule\\EventHandlers", "onSuccessCatalogImport1CHandler");
-    }
-
-    function UnInstallEvents()
-    {
-        UnRegisterModuleDependences("catalog", "OnBeforeCatalogImport1C", $this->MODULE_ID, "Pragma\\ImportModule\\EventHandlers", "onBeforeCatalogImport1CHandler");
-        UnRegisterModuleDependences("catalog", "OnSuccessCatalogImport1C", $this->MODULE_ID, "Pragma\\ImportModule\\EventHandlers", "onSuccessCatalogImport1CHandler");
-    }
-
-    function InstallAgents()
-    {
-        CAgent::AddAgent(
-            "Pragma\\ImportModule\\Agent\\ImportAgent::run();", // Функция агента
-            $this->MODULE_ID, // ID модуля
-            "N", // Периодичность (N - не периодический)
-            86400, // Интервал (в секундах)
-            "", // Дата первой проверки
-            "Y", // Активность
-            "", // Дата первого запуска
-            100 // Сортировка
+        EventManager::getInstance()->registerEventHandler(
+            "catalog",
+            "OnSuccessCatalogImport1C",
+            $this->MODULE_ID,
+            "Pragma\\ImportModule\\EventHandlers",
+            "onSuccessCatalogImport1CHandler"
         );
     }
 
-    function UnInstallAgents()
+    public function UnInstallEvents()
     {
-        CAgent::RemoveModuleAgents($this->MODULE_ID);
+        EventManager::getInstance()->unRegisterEventHandler(
+            "catalog",
+            "OnBeforeIBlockImport1C",
+            $this->MODULE_ID,
+            "Pragma\\ImportModule\\EventHandlers",
+            "onBeforeCatalogImport1CHandler"
+        );
+
+        EventManager::getInstance()->unRegisterEventHandler(
+            "catalog",
+            "OnSuccessCatalogImport1C",
+            $this->MODULE_ID,
+            "Pragma\\ImportModule\\EventHandlers",
+            "onSuccessCatalogImport1CHandler"
+        );
+    }
+
+    public function InstallAgents()
+    {
+        // Создаем агенты при установке модуля (неактивные)
+        $checkAgentId = \CAgent::AddAgent(
+            "Pragma\\ImportModule\\Agent\\CheckAgent::run();", 
+            $this->MODULE_ID,
+            "N", // Агент неактивен
+            300, 
+            "", 
+            "Y", 
+            date("d.m.Y H:i:s"), 
+            100 
+        );
+        Option::set($this->MODULE_ID, "CHECK_AGENT_ID", $checkAgentId); 
+
+        $importAgentId = \CAgent::AddAgent(
+            "Pragma\\ImportModule\\Agent\\ImportAgent::run();", 
+            $this->MODULE_ID,
+            "N", // Агент неактивен
+            86400, 
+            "", 
+            "Y", 
+            date("d.m.Y H:i:s", time() + 86400),
+            100 
+        );
+        Option::set($this->MODULE_ID, "IMPORT_AGENT_ID", $importAgentId);
+
+        // Обходное решение: сразу деактивируем агенты после создания
+        \CAgent::Update($checkAgentId, array("ACTIVE" => "N")); 
+        \CAgent::Update($importAgentId, array("ACTIVE" => "N"));
+    }
+
+    public function UnInstallAgents()
+    {
+        // Удаляем агенты при удалении модуля
+        $checkAgentId = Option::get($this->MODULE_ID, "CHECK_AGENT_ID", 0);
+        $importAgentId = Option::get($this->MODULE_ID, "IMPORT_AGENT_ID", 0);
+
+        if ($checkAgentId > 0) {
+            \CAgent::Delete($checkAgentId);
+        }
+        if ($importAgentId > 0) {
+            \CAgent::Delete($importAgentId);
+        }
+
+        Option::delete($this->MODULE_ID, array("name" => "CHECK_AGENT_ID"));
+        Option::delete($this->MODULE_ID, array("name" => "IMPORT_AGENT_ID"));
     }
 }

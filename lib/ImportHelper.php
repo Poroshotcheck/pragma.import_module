@@ -3,52 +3,44 @@
 namespace Pragma\ImportModule;
 
 use Bitrix\Main\Config\Option;
-use Bitrix\Iblock\ElementTable;
 
 class ImportHelper
 {
     public static function processCatalog()
     {
-        // Получаем настройки модуля
-        $iblockTypeImport = Option::get('pragma.import_module', 'IBLOCK_TYPE_IMPORT', '');
-        $iblockTypeCatalog = Option::get('pragma.import_module', 'IBLOCK_TYPE_CATALOG', '');
-        // ... (получение остальных настроек)
+        $moduleId = 'pragma.import_module';
+        $iblockIdImport = Option::get($moduleId, "IBLOCK_ID_IMPORT", 0);
+        $iblockIdCatalog = Option::get($moduleId, "IBLOCK_ID_CATALOG", 0);
+        $sectionMappings = unserialize(Option::get($moduleId, "SECTION_MAPPINGS", "a:0:{}"));
 
-        // Проверяем настройки
-        if (empty($iblockTypeImport) || empty($iblockTypeCatalog)) {
-            // Обработка ошибки: не заданы типы инфоблоков
-            return;
+        $importStartCount = Option::get($moduleId, 'import_start_count', 0);
+        $importSuccessCount = Option::get($moduleId, 'import_success_count', 0);
+
+        $logMessage = "Catalog processing started. Import IBLOCK_ID: {$iblockIdImport}, Catalog IBLOCK_ID: {$iblockIdCatalog}\n";
+        $logMessage .= "Section mappings: " . print_r($sectionMappings, true) . "\n";
+
+        if ($importStartCount == $importSuccessCount) {
+            $logMessage .= "Import status: Full success\n";
+        } elseif ($importSuccessCount > 0) {
+            $logMessage .= "Import status: Partial success\n";
+        } else {
+            $logMessage .= "Import status: Full failure\n";
         }
 
-        // Получаем элементы из инфоблока импорта
-        $elements = ElementTable::getList([
-            'filter' => [
-                'IBLOCK_TYPE' => $iblockTypeImport,
-            ],
-            'select' => [
-                'ID',
-                'NAME',
-                'IBLOCK_SECTION_ID',
-                // ... (другие необходимые поля)
-            ],
-        ]);
+        $logMessage .= "Import start count: {$importStartCount}\n";
+        $logMessage .= "Import success count: {$importSuccessCount}\n";
 
-        // Обрабатываем каждый элемент
-        while ($element = $elements->fetch()) {
-            // Получаем раздел элемента
-            $sectionId = $element['IBLOCK_SECTION_ID'];
+        self::log($logMessage);
 
-            // Определяем целевой раздел в инфоблоке каталога
-            $targetSectionId = self::getTargetSectionId($sectionId);
-
-            // ... (логика перемещения элемента в целевой раздел)
-        }
+        // Сбрасываем счетчики
+        Option::set($moduleId, 'import_start_count', 0);
+        Option::set($moduleId, 'import_success_count', 0);
     }
 
-    private static function getTargetSectionId($sectionId)
+    private static function log($message)
     {
-        // ... (логика определения целевого раздела на основе настроек модуля)
+        $logFile = $_SERVER["DOCUMENT_ROOT"] . "/local/modules/pragma.import_module/import_log.txt";
+        $logMessage = date("[Y-m-d H:i:s] ") . $message . "\n";
+        file_put_contents($logFile, $logMessage, FILE_APPEND);
     }
 }
-
-?>
