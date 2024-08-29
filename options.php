@@ -5,6 +5,7 @@ use Bitrix\Main\Config\Option;
 use Bitrix\Main\Loader;
 use Bitrix\Iblock\IblockTable;
 use Bitrix\Iblock\SectionTable;
+use Bitrix\Main\Application;
 
 $module_id = 'pragma.import_module';
 Loc::loadMessages(__FILE__);
@@ -24,6 +25,7 @@ require_once __DIR__ . '/lib/Logger.php';
 // Инициализация логгера
 $logFile = $_SERVER['DOCUMENT_ROOT'] . "/local/modules/pragma.import_module/logs/import.log";
 \Pragma\ImportModule\Logger::init($logFile);
+
 // Проверка наличия агентов
 $checkAgentId = Option::get($module_id, "CHECK_AGENT_ID", 0);
 $importAgentId = Option::get($module_id, "IMPORT_AGENT_ID", 0);
@@ -136,30 +138,43 @@ function buildSectionOptions($sections, $selectedId = null, $level = 0)
 }
 
 // Обработка отправки формы
-if ($_SERVER["REQUEST_METHOD"] == "POST" && strlen($_POST["Update"]) > 0 && check_bitrix_sessid()) {
-    Option::set($module_id, "IBLOCK_ID_IMPORT", $_POST["IBLOCK_ID_IMPORT"]);
-    Option::set($module_id, "IBLOCK_ID_CATALOG", $_POST["IBLOCK_ID_CATALOG"]);
+$request = Application::getInstance()->getContext()->getRequest(); // Получение объекта запроса
+if ($request->isPost() && strlen($request->getPost("Update")) > 0 && check_bitrix_sessid()) {
+    // Получение данных из запроса безопасным способом
+    $iblockIdImport = intval($request->getPost("IBLOCK_ID_IMPORT"));
+    $iblockIdCatalog = intval($request->getPost("IBLOCK_ID_CATALOG"));
+    $autoMode = $request->getPost("AUTO_MODE") ? "Y" : "N";
+    $delayTime = intval($request->getPost("DELAY_TIME"));
+    $agentInterval = intval($request->getPost("AGENT_INTERVAL"));
+    $agentNextExec = htmlspecialcharsbx($request->getPost("AGENT_NEXT_EXEC")); // Экранирование
+    $sectionMappings = $request->getPost("SECTION_MAPPINGS");
 
-    $autoMode = isset($_POST["AUTO_MODE"]) ? "Y" : "N";
+    // Сохранение настроек
+    Option::set($module_id, "IBLOCK_ID_IMPORT", $iblockIdImport);
+    Option::set($module_id, "IBLOCK_ID_CATALOG", $iblockIdCatalog);
     Option::set($module_id, "AUTO_MODE", $autoMode);
 
     if ($autoMode === "Y") {
-        Option::set($module_id, "DELAY_TIME", $_POST["DELAY_TIME"]);
+        Option::set($module_id, "DELAY_TIME", $delayTime);
     } else {
-        $agentInterval = intval($_POST["AGENT_INTERVAL"]);
-        $agentNextExec = $_POST["AGENT_NEXT_EXEC"];
-
         Option::set($module_id, "AGENT_INTERVAL", $agentInterval);
         Option::set($module_id, "AGENT_NEXT_EXEC", $agentNextExec);
     }
 
-    if (isset($_POST["SECTION_MAPPINGS"]) && is_array($_POST["SECTION_MAPPINGS"])) {
-        $sectionMappings = $_POST["SECTION_MAPPINGS"];
+    // Обработка сопоставлений разделов
+    if (is_array($sectionMappings)) {
         foreach ($sectionMappings as &$mapping) {
             if (isset($mapping['SECTION_ID'])) {
+                $mapping['SECTION_ID'] = intval($mapping['SECTION_ID']); // Приведение к целому числу
                 $section = \Bitrix\Iblock\SectionTable::getRowById($mapping['SECTION_ID']);
                 if ($section) {
-                    $mapping['DEPTH_LEVEL'] = $section['DEPTH_LEVEL'];
+                    $mapping['DEPTH_LEVEL'] = intval($section['DEPTH_LEVEL']); // Приведение к целому числу
+                }
+            }
+            // Экранирование свойств
+            if (isset($mapping['PROPERTIES']) && is_array($mapping['PROPERTIES'])) {
+                foreach ($mapping['PROPERTIES'] as &$property) {
+                    $property = htmlspecialcharsbx($property); // Экранирование HTML
                 }
             }
         }
@@ -233,6 +248,12 @@ $aTabs = [
         "TAB" => Loc::getMessage("PRAGMA_IMPORT_MODULE_SETTINGS"),
         "ICON" => "pragma_import_module_settings",
         "TITLE" => Loc::getMessage("PRAGMA_IMPORT_MODULE_SETTINGS"),
+    ],
+    [ // Новый таб
+        "DIV" => "edit2",
+        "TAB" => Loc::getMessage("PRAGMA_IMPORT_MODULE_SECTION_MAPPINGS"), // Название таба
+        "ICON" => "pragma_import_module_section_mappings",
+        "TITLE" => Loc::getMessage("PRAGMA_IMPORT_MODULE_SECTION_MAPPINGS_TITLE"), // Заголовок таба
     ],
 ];
 
@@ -324,6 +345,8 @@ $tabControl->Begin();
         </td>
     </tr>
 
+    <? $tabControl->BeginNextTab(); ?>
+
     <!-- Множественная настройка сопоставления разделов и свойств -->
     <tr>
         <td colspan="2">
@@ -337,7 +360,7 @@ $tabControl->Begin();
                     <div class="section-mapping">
                         <select name="SECTION_MAPPINGS[<?= $index ?>][SECTION_ID]" class="section-select"
                             data-index="<?= $index ?>">
-                            <option value=""><?= Loc::getMessage("PRAGMA_IMPORT_MODULE_SELECT_SECTION") ?></option>
+                            <!-- <option value=""><?= Loc::getMessage("PRAGMA_IMPORT_MODULE_SELECT_SECTION") ?></option> -->
                             <?php
                             // Если IBLOCK_ID_CATALOG выбран, загружаем опции разделов
                             if ($iblockIdCatalog) {
@@ -519,19 +542,24 @@ $tabControl->Begin();
 
 <template id="section-mapping-template">
     <div class="section-mapping">
-        <select name="SECTION_MAPPINGS[{index}][SECTION_ID]" class="section-select">
-            <option value=""><?= Loc::getMessage("PRAGMA_IMPORT_MODULE_SELECT_SECTION") ?></option>
-        </select>
+        <div class="select-wrapper">
+            <select name="SECTION_MAPPINGS[{index}][SECTION_ID]" class="section-select">
+                <option value=""><?= Loc::getMessage("PRAGMA_IMPORT_MODULE_SELECT_SECTION") ?></option>
+            </select>
+            <button type="button" onclick="removeMapping(this)">
+                <?= Loc::getMessage("PRAGMA_IMPORT_MODULE_REMOVE_MAPPING") ?>
+            </button>
+        </div>
         <div class="properties-container">
             <div class="property">
                 <input type="text" name="SECTION_MAPPINGS[{index}][PROPERTIES][]">
-                <button type="button"
-                    onclick="removeProperty(this)"><?= Loc::getMessage("PRAGMA_IMPORT_MODULE_REMOVE_PROPERTY") ?></button>
+                <button type="button" onclick="removeProperty(this)">
+                    <?= Loc::getMessage("PRAGMA_IMPORT_MODULE_REMOVE_PROPERTY") ?>
+                </button>
             </div>
         </div>
-        <button type="button"
-            onclick="addProperty(this)"><?= Loc::getMessage("PRAGMA_IMPORT_MODULE_ADD_PROPERTY") ?></button>
-        <button type="button"
-            onclick="removeMapping(this)"><?= Loc::getMessage("PRAGMA_IMPORT_MODULE_REMOVE_MAPPING") ?></button>
+        <button type="button" onclick="addProperty(this)">
+            <?= Loc::getMessage("PRAGMA_IMPORT_MODULE_ADD_PROPERTY") ?>
+        </button>
     </div>
 </template>

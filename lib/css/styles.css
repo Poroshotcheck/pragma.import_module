@@ -1,83 +1,69 @@
 /* Стили для кнопок */
 .section-mapping button {
     background-color: #007bff;
-    /* Цвет фона */
     border: none;
-    /* Убираем границу */
     color: white;
-    /* Цвет текста */
     padding: 5px 10px;
-    /* Отступы */
     text-align: center;
-    /* Выравнивание текста */
     text-decoration: none;
-    /* Убираем подчеркивание */
     display: inline-block;
-    /* Отображение как блочный элемент */
     font-size: 14px;
-    /* Размер шрифта */
     margin: 4px 2px;
-    /* Отступы */
     cursor: pointer;
-    /* Курсор в виде руки */
     border-radius: 5px;
-    /* Скругленные углы */
 }
 
 .add-mapping-button {
     background-color: #28a745;
-    /* Зеленый цвет фона */
     border: none;
-    /* Убираем границу */
     color: white;
-    /* Цвет текста */
     padding: 5px 10px;
-    /* Отступы */
     text-align: center;
-    /* Выравнивание текста */
     text-decoration: none;
-    /* Убираем подчеркивание */
     display: inline-block;
-    /* Отображение как блочный элемент */
     font-size: 14px;
-    /* Размер шрифта */
-    margin: 4px 2px;
-    /* Отступы */
+    margin: 30px 2px 0px 0px;
     cursor: pointer;
-    /* Курсор в виде руки */
     border-radius: 5px;
-    /* Скругленные углы */
 }
 
 .add-mapping-button:hover {
     background-color: #218838;
-    /* Темно-зеленый цвет фона при наведении */
 }
 
 .section-mapping button:hover {
     background-color: #0056b3;
-    /* Цвет фона при наведении */
 }
 
 /* Стили для кнопки "Удалить" (крестик) */
 .section-mapping button[onclick="removeProperty(this)"] {
     background-color: #dc3545;
-    /* Красный цвет фона */
 }
 
 .section-mapping button[onclick="removeProperty(this)"]:hover {
     background-color: #c82333;
-    /* Темно-красный цвет фона при наведении */
 }
 
 #section_mappings_container button[onclick^="add"],
 form button[onclick^="add"] {
-    background-color: #28a745;
-    /* Зеленый цвет фона */
+    background-color: #28a745; 
 }
 
 #section_mappings_container button[onclick^="add"]:hover,
 form button[onclick^="add"]:hover {
     background-color: #218838;
-    /* Темно-зеленый цвет фона при наведении */
+}
+
+/* Стили для select-wrapper */
+.select-wrapper {
+  display: flex;
+  align-items: center; 
+}
+
+.select-wrapper .section-select {
+  flex-grow: 1; 
+}
+
+.select-wrapper button {
+  margin-left: 10px; 
 }

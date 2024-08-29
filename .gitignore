@@ -1,0 +1,18 @@
+# Игнорируем логи
+/local/modules/pragma.import_module/logs/
+
+# Игнорируем файлы журналов и временные файлы, которые могут создаваться системой
+*.log
+*.tmp
+
+# Игнорируем файлы, связанные с IDE (например, PHPStorm или VSCode)
+.idea/
+.vscode/
+
+# Игнорируем персональные и системные файлы
+.DS_Store
+Thumbs.db
+*.bak
+
+
+C:/Users/PRAGMA-PC-20/Desktop/Sergey FTP/Сплав/local/modules/pragma.import_modulв

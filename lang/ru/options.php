@@ -16,3 +16,5 @@ $MESS["PRAGMA_IMPORT_MODULE_REMOVE_PROPERTY"] = "⨯";
 $MESS["PRAGMA_IMPORT_MODULE_ADD_PROPERTY"] = "+";
 $MESS["PRAGMA_IMPORT_MODULE_REMOVE_MAPPING"] = "Удалить сопоставление";
 $MESS["PRAGMA_IMPORT_MODULE_ADD_MAPPING"] = "Добавить сопоставление";
+$MESS["PRAGMA_IMPORT_MODULE_SECTION_MAPPINGS"] = "Сопоставление разделов";
+$MESS["PRAGMA_IMPORT_MODULE_SECTION_MAPPINGS_TITLE"] = "Настройки сопоставления разделов и строк";

@@ -6,15 +6,17 @@ require_once($_SERVER["DOCUMENT_ROOT"]."/bitrix/modules/main/include/prolog_befo
 
 use Bitrix\Main\Loader;
 use Bitrix\Iblock\SectionTable;
+use Bitrix\Main\Application;
 
 if (!Loader::includeModule('iblock')) {
     die('IBlock module is not installed');
 }
 
-$iblockId = intval($_REQUEST['IBLOCK_ID']);
+$request = Application::getInstance()->getContext()->getRequest();
+$iblockId = intval($request->getQuery('IBLOCK_ID'));
 
 if ($iblockId > 0) {
-    echo getSectionOptionsHtml($iblockId);
+    echo getSectionOptionsHtml($iblockId); 
 }
 
 function getSectionOptionsHtml($iblockId, $selectedId = null)
@@ -24,7 +26,7 @@ function getSectionOptionsHtml($iblockId, $selectedId = null)
     }
 
     $rsSections = SectionTable::getList([
-        'filter' => ['IBLOCK_ID' => $iblockId],
+        'filter' => ['IBLOCK_ID' => intval($iblockId)],
         'select' => ['ID', 'NAME', 'IBLOCK_SECTION_ID', 'DEPTH_LEVEL'],
         'order' => ['LEFT_MARGIN' => 'ASC']
     ]);
@@ -51,8 +53,8 @@ function buildSectionOptions($sections, $selectedId = null, $level = 0)
 {
     $result = '';
     foreach ($sections as $section) {
-        $selected = ($section['ID'] == $selectedId) ? 'selected' : '';
-        $result .= '<option value="' . $section['ID'] . '" ' . $selected . '>'
+        $selected = ($section['ID'] == intval($selectedId)) ? 'selected' : '';
+        $result .= '<option value="' . intval($section['ID']) . '" ' . $selected . '>'
             . str_repeat(" ", $level * 3) . htmlspecialcharsbx($section['NAME'])
             . '</option>';
         if (!empty($section['CHILDREN'])) {
