@@ -1,17 +1,22 @@
 /local/modules/pragma.import_module/
-    ├── logs/
     ├── install/
-    │   └── index.php
+    │   ├── index.php
+    │   └── version.php
+    ├── lang/
+    │   └── ru/
     ├── lib/
     │   ├── agent/
     │   │   ├── CheckAgent.php
     │   │   └── ImportAgent.php
-    │   ├── EventHandlers.php
-    │   ├── Logger.php
-    │   ├── ImportHelper.php
+    │   ├── css/
+    │   │   └── styles.css
     │   ├── ajax.php
-    │   └── css/
-    │       └── styles.css
+    │   ├── CacheHelper.php 
+    │   ├── EventHandlers.php
+    │   ├── ImportHelper.php
+    │   ├── Logger.php
+    │   └── SectionHelper.php
+    ├── logs/
     ├── options.php
     ├── include.php
     └── default_option.php

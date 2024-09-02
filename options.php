@@ -4,8 +4,12 @@ use Bitrix\Main\Localization\Loc;
 use Bitrix\Main\Config\Option;
 use Bitrix\Main\Loader;
 use Bitrix\Iblock\IblockTable;
-use Bitrix\Iblock\SectionTable;
 use Bitrix\Main\Application;
+use Pragma\ImportModule\Logger;
+use Pragma\ImportModule\SectionHelper;
+use Pragma\ImportModule\Agent\CheckAgent;
+use Pragma\ImportModule\Agent\ImportAgent;
+use Pragma\ImportModule\CacheHelper; // Добавляем use для CacheHelper
 
 $module_id = 'pragma.import_module';
 Loc::loadMessages(__FILE__);
@@ -19,12 +23,10 @@ Loader::includeModule('iblock');
 
 // Подключение файла с настройками по умолчанию
 require_once __DIR__ . '/default_option.php';
-// Подключение класса Logger
-require_once __DIR__ . '/lib/Logger.php';
 
 // Инициализация логгера
 $logFile = $_SERVER['DOCUMENT_ROOT'] . "/local/modules/pragma.import_module/logs/import.log";
-\Pragma\ImportModule\Logger::init($logFile);
+Logger::init($logFile);
 
 // Проверка наличия агентов
 $checkAgentId = Option::get($module_id, "CHECK_AGENT_ID", 0);
@@ -49,7 +51,7 @@ if (!$checkAgentId || !\CAgent::GetByID($checkAgentId)->Fetch()) {
 
     if (!$checkAgentId) {
         $agentExists = false;
-        \Pragma\ImportModule\Logger::log("Ошибка создания агента CheckAgent", "ERROR");
+        Logger::log("Ошибка создания агента CheckAgent", "ERROR");
         CAdminMessage::ShowMessage(Loc::getMessage("PRAGMA_IMPORT_MODULE_AGENT_CREATION_ERROR"));
     }
 }
@@ -71,7 +73,7 @@ if (!$importAgentId || !\CAgent::GetByID($importAgentId)->Fetch()) {
 
     if (!$importAgentId) {
         $agentExists = false;
-        \Pragma\ImportModule\Logger::log("Ошибка создания агента ImportAgent", "ERROR");
+        Logger::log("Ошибка создания агента ImportAgent", "ERROR");
         CAdminMessage::ShowMessage(Loc::getMessage("PRAGMA_IMPORT_MODULE_AGENT_CREATION_ERROR"));
     }
 }
@@ -88,53 +90,6 @@ if ($agentExists) {
     $agentNextExec = $importAgentInfo['NEXT_EXEC'];
 } else {
     CAdminMessage::ShowMessage(Loc::getMessage("PRAGMA_IMPORT_MODULE_AGENT_NOT_FOUND"));
-}
-
-// Функция для получения HTML-кода опций разделов для select
-function getSectionOptionsHtml($iblockId, $selectedId = null)
-{
-    if (empty($iblockId)) {
-        return '';
-    }
-
-    $rsSections = SectionTable::getList([
-        'filter' => ['IBLOCK_ID' => $iblockId],
-        'select' => ['ID', 'NAME', 'IBLOCK_SECTION_ID', 'DEPTH_LEVEL'],
-        'order' => ['LEFT_MARGIN' => 'ASC']
-    ]);
-
-    $sections = [];
-    while ($section = $rsSections->fetch()) {
-        $sections[$section['ID']] = $section;
-    }
-
-    // Строим дерево разделов
-    $tree = [];
-    foreach ($sections as &$section) {
-        if ($section['IBLOCK_SECTION_ID'] && isset($sections[$section['IBLOCK_SECTION_ID']])) {
-            $sections[$section['IBLOCK_SECTION_ID']]['CHILDREN'][] = &$section;
-        } else {
-            $tree[] = &$section;
-        }
-    }
-
-    return buildSectionOptions($tree, $selectedId);
-}
-
-// Функция для рекурсивного построения опций разделов
-function buildSectionOptions($sections, $selectedId = null, $level = 0)
-{
-    $result = '';
-    foreach ($sections as $section) {
-        $selected = ($section['ID'] == $selectedId) ? 'selected' : '';
-        $result .= '<option value="' . $section['ID'] . '" ' . $selected . '>'
-            . str_repeat(" ", $level * 3) . htmlspecialcharsbx($section['NAME'])
-            . '</option>';
-        if (!empty($section['CHILDREN'])) {
-            $result .= buildSectionOptions($section['CHILDREN'], $selectedId, $level + 1);
-        }
-    }
-    return $result;
 }
 
 // Обработка отправки формы
@@ -166,10 +121,6 @@ if ($request->isPost() && strlen($request->getPost("Update")) > 0 && check_bitri
         foreach ($sectionMappings as &$mapping) {
             if (isset($mapping['SECTION_ID'])) {
                 $mapping['SECTION_ID'] = intval($mapping['SECTION_ID']); // Приведение к целому числу
-                $section = \Bitrix\Iblock\SectionTable::getRowById($mapping['SECTION_ID']);
-                if ($section) {
-                    $mapping['DEPTH_LEVEL'] = intval($section['DEPTH_LEVEL']); // Приведение к целому числу
-                }
             }
             // Экранирование свойств
             if (isset($mapping['PROPERTIES']) && is_array($mapping['PROPERTIES'])) {
@@ -198,7 +149,7 @@ if ($request->isPost() && strlen($request->getPost("Update")) > 0 && check_bitri
         $updateResult = \CAgent::Update($importAgentId, $agentFields);
 
         if (!$updateResult) {
-            \Pragma\ImportModule\Logger::log("Ошибка обновления агента: " . $importAgentId . " - " . $APPLICATION->GetException(), "ERROR");
+            Logger::log("Ошибка обновления агента: " . $importAgentId . " - " . $APPLICATION->GetException(), "ERROR");
             echo "<div class='adm-info-message'>" . Loc::getMessage("PRAGMA_IMPORT_MODULE_AGENT_UPDATE_ERROR") . ": " . $APPLICATION->GetException() . "</div>";
         }
     }
@@ -207,18 +158,22 @@ if ($request->isPost() && strlen($request->getPost("Update")) > 0 && check_bitri
     $settings = [
         'IBLOCK_ID_IMPORT' => Option::get($module_id, "IBLOCK_ID_IMPORT"),
         'IBLOCK_ID_CATALOG' => Option::get($module_id, "IBLOCK_ID_CATALOG"),
-        'AUTO_MODE' => Option::get($module_id, "AUTO_MODE"), // Исправлено отображение AUTO_MODE
+        'AUTO_MODE' => Option::get($module_id, "AUTO_MODE"),
         'DELAY_TIME' => Option::get($module_id, "DELAY_TIME"),
         'AGENT_INTERVAL' => Option::get($module_id, "AGENT_INTERVAL"),
         'AGENT_NEXT_EXEC' => Option::get($module_id, "AGENT_NEXT_EXEC"),
         'SECTION_MAPPINGS' => unserialize(Option::get($module_id, "SECTION_MAPPINGS")),
-        'CHECK_AGENT_ID' => Option::get($module_id, "CHECK_AGENT_ID"), // Добавлено ID агента CheckAgent
-        'IMPORT_AGENT_ID' => Option::get($module_id, "IMPORT_AGENT_ID"), // Добавлено ID агента ImportAgent
+        'CHECK_AGENT_ID' => Option::get($module_id, "CHECK_AGENT_ID"),
+        'IMPORT_AGENT_ID' => Option::get($module_id, "IMPORT_AGENT_ID"),
     ];
 
     $logFilePath = $_SERVER['DOCUMENT_ROOT'] . "/local/modules/pragma.import_module/logs/settings.json";
     file_put_contents($logFilePath, json_encode($settings, JSON_PRETTY_PRINT));
 
+    // Обновляем кэш после сохранения настроек
+    if ($iblockIdCatalog > 0) {
+        CacheHelper::updateSectionsCache($iblockIdCatalog);
+    }
     LocalRedirect($APPLICATION->GetCurPage() . "?mid=" . urlencode($module_id) . "&lang=" . LANGUAGE_ID);
 }
 
@@ -355,16 +310,29 @@ $tabControl->Begin();
                 if (empty($sectionMappings)) {
                     $sectionMappings = [['SECTION_ID' => '', 'PROPERTIES' => ['']]];
                 }
+
+                // Получаем данные из кэша один раз перед циклом
+                $cachedData = CacheHelper::getCachedSections($iblockIdCatalog);
+                $sections = $cachedData ? $cachedData[0] : [];
+
                 foreach ($sectionMappings as $index => $mapping):
                     ?>
                     <div class="section-mapping">
                         <select name="SECTION_MAPPINGS[<?= $index ?>][SECTION_ID]" class="section-select"
                             data-index="<?= $index ?>">
-                            <!-- <option value=""><?= Loc::getMessage("PRAGMA_IMPORT_MODULE_SELECT_SECTION") ?></option> -->
+                            <option value=""><?= Loc::getMessage("PRAGMA_IMPORT_MODULE_SELECT_SECTION") ?></option>
                             <?php
                             // Если IBLOCK_ID_CATALOG выбран, загружаем опции разделов
                             if ($iblockIdCatalog) {
-                                echo getSectionOptionsHtml($iblockIdCatalog, $mapping['SECTION_ID']);
+                                if ($sections) {
+                                    // Если кэш не пуст, выводим разделы
+                                    echo SectionHelper::getSectionOptionsHtml($iblockIdCatalog, $mapping['SECTION_ID'], $sections); // Передаем $sections
+                                } else {
+                                    // Если кэш пуст, выводим пустой select
+                                    echo '<select name="SECTION_MAPPINGS[' . $index . '][SECTION_ID]" class="section-select" data-index="' . $index . '">
+                                        <option value="">' . Loc::getMessage("PRAGMA_IMPORT_MODULE_SELECT_SECTION") . '</option>
+                                    </select>';
+                                }
                             }
                             ?>
                         </select>
@@ -431,6 +399,17 @@ $tabControl->Begin();
                 sectionSelects.forEach(select => {
                     select.innerHTML = '<option value="">' + select.options[0].text + '</option>';
                 });
+            }
+        });
+
+        // Проверяем наличие опций в select'ах
+        const sectionSelects = document.querySelectorAll('.section-select');
+        sectionSelects.forEach(select => {
+            if (select.options.length <= 1) { // <= 1, так как есть пустая опция
+                const iblockId = document.getElementById('IBLOCK_ID_CATALOG').value;
+                if (iblockId) {
+                    updateSectionOptions(iblockId, select);
+                }
             }
         });
     });
