@@ -1,16 +1,15 @@
 <?php
 
-namespace Pragma\ImportModule;
-
-require_once($_SERVER["DOCUMENT_ROOT"] . "/local/modules/pragma.import_module/lib/Logger.php");
+namespace Pragma\ImportModule; 
 
 use Pragma\ImportModule\Logger;
 use Bitrix\Main\Data\Cache;
 use Bitrix\Iblock\SectionTable;
+use Bitrix\Iblock\IblockTable;
 
 class CacheHelper
 {
-    private static $cacheDir = "/pragma.import_module/module_cache/";
+    private static $cacheDir = "/pragma.importmodule/module_cache/";
 
     public static function getCachedSections($iblockId)
     {
@@ -18,9 +17,6 @@ class CacheHelper
 
         $cache = Cache::createInstance();
         $cacheId = "sections_cache_iblock_" . $iblockId;
-
-        Logger::log("Cache ID: " . $cacheId);
-        Logger::log("Cache Dir: " . self::$cacheDir);
 
         if ($cache->initCache(604800, $cacheId, self::$cacheDir)) {
             $sections = $cache->getVars();
@@ -56,7 +52,7 @@ class CacheHelper
 
     public static function updateSectionsCache($iblockId)
     {
-        self::clearCache($iblockId);
+        self::clearSectionsCache($iblockId);
 
         $sections = [];
         $rsSections = SectionTable::getList([
@@ -72,11 +68,73 @@ class CacheHelper
         Logger::log("Кэш разделов обновлён для инфоблока: " . $iblockId);
     }
 
-    public static function clearCache($iblockId)
+    public static function clearSectionsCache($iblockId)
     {
         $cache = Cache::createInstance();
         $cacheId = "sections_cache_iblock_" . $iblockId;
         $cache->clean($cacheId, self::$cacheDir);
         Logger::log("Кэш разделов очищен для инфоблока: " . $iblockId);
+    }
+
+    public static function getCachedIblocks()
+    {
+        Logger::log("Попытка получить список инфоблоков из кэша");
+
+        $cache = Cache::createInstance();
+        $cacheId = "iblocks_cache";
+
+        if ($cache->initCache(604800, $cacheId, self::$cacheDir)) {
+            $iblocks = $cache->getVars();
+            Logger::log("Список инфоблоков получен из кэша");
+            return $iblocks;
+        }
+
+        Logger::log("Список инфоблоков не найден в кэше");
+        return false;
+    }
+
+    public static function saveIblocksCache($iblocks)
+    {
+        Logger::log("Попытка сохранить список инфоблоков в кэш");
+
+        $cache = Cache::createInstance();
+        $cacheId = "iblocks_cache";
+
+        if ($cache->startDataCache(604800, $cacheId, self::$cacheDir)) {
+            $cache->endDataCache($iblocks);
+            Logger::log("Список инфоблоков сохранен в кэш");
+            return true;
+        }
+
+        Logger::log("Ошибка сохранения списка инфоблоков в кэш", "ERROR");
+        return false;
+    }
+
+    public static function updateIblocksCache()
+    {
+        Logger::log("Обновление кэша инфоблоков");
+
+        // Очистка кэша перед заполнением
+        self::clearIblocksCache();
+
+        $iblocks = [];
+        $rsIblocks = IblockTable::getList([
+            'select' => ['ID', 'NAME'],
+            'order' => ['NAME' => 'ASC']
+        ]);
+        while ($arIblock = $rsIblocks->fetch()) {
+            $iblocks[$arIblock["ID"]] = $arIblock["NAME"];
+        }
+
+        self::saveIblocksCache($iblocks);
+        Logger::log("Кэш инфоблоков обновлён");
+    }
+
+    public static function clearIblocksCache()
+    {
+        $cache = Cache::createInstance();
+        $cacheId = "iblocks_cache";
+        $cache->clean($cacheId, self::$cacheDir);
+        Logger::log("Кэш инфоблоков очищен");
     }
 }

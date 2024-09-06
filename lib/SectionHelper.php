@@ -2,8 +2,6 @@
 
 namespace Pragma\ImportModule;
 
-require_once($_SERVER["DOCUMENT_ROOT"] . "/local/modules/pragma.import_module/lib/Logger.php");
-
 use Pragma\ImportModule\Logger;
 use Bitrix\Iblock\SectionTable;
 

@@ -8,7 +8,7 @@ class ImportHelper
 {
     public static function processCatalog()
     {
-        $moduleId = 'pragma.import_module';
+        $moduleId = 'pragma.importmodule';
         $iblockIdImport = Option::get($moduleId, "IBLOCK_ID_IMPORT", 0);
         $iblockIdCatalog = Option::get($moduleId, "IBLOCK_ID_CATALOG", 0);
         $sectionMappings = unserialize(Option::get($moduleId, "SECTION_MAPPINGS", "a:0:{}"));
@@ -39,7 +39,7 @@ class ImportHelper
 
     private static function log($message)
     {
-        $logFile = $_SERVER["DOCUMENT_ROOT"] . "/local/modules/pragma.import_module/import_log.txt";
+        $logFile = $_SERVER["DOCUMENT_ROOT"] . "/local/modules/pragma.importmodule/import_log.txt";
         $logMessage = date("[Y-m-d H:i:s] ") . $message . "\n";
         file_put_contents($logFile, $logMessage, FILE_APPEND);
     }

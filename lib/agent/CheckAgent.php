@@ -8,7 +8,7 @@ class CheckAgent
 {
     public static function run()
     {
-        $moduleId = 'pragma.import_module';
+        $moduleId = 'pragma.importmodule';
         $autoMode = Option::get($moduleId, "AUTO_MODE", "N");
         $importStartTime = Option::get($moduleId, 'import_start_time', 0);
         $delayTime = Option::get($moduleId, "DELAY_TIME", 60);

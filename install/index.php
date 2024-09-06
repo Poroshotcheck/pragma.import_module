@@ -1,12 +1,17 @@
 <?php
+require_once($_SERVER["DOCUMENT_ROOT"] . "/local/modules/pragma.importmodule/lib/AgentManager.php");// Рот того автоподключения
+
 
 use Bitrix\Main\ModuleManager;
 use Bitrix\Main\Config\Option;
 use Bitrix\Main\EventManager;
+use Pragma\ImportModule\AgentManager;
+use Pragma\ImportModule\Agent\CheckAgent;
+use Pragma\ImportModule\Agent\ImportAgent;
 
-class pragma_import_module extends CModule
+class pragma_importmodule extends CModule
 {
-    public $MODULE_ID = "pragma.import_module";
+    public $MODULE_ID = "pragma.importmodule";
     public $MODULE_VERSION;
     public $MODULE_VERSION_DATE;
     public $MODULE_NAME;
@@ -16,10 +21,10 @@ class pragma_import_module extends CModule
     {
         $arModuleVersion = array();
         include(__DIR__ . "/version.php");
-        
+
         $this->MODULE_VERSION = $arModuleVersion["VERSION"];
         $this->MODULE_VERSION_DATE = $arModuleVersion["VERSION_DATE"];
-        
+
         $this->MODULE_NAME = GetMessage("PRAGMA_IMPORT_MODULE_NAME");
         $this->MODULE_DESCRIPTION = GetMessage("PRAGMA_IMPORT_MODULE_DESCRIPTION");
     }
@@ -28,14 +33,41 @@ class pragma_import_module extends CModule
     {
         ModuleManager::registerModule($this->MODULE_ID);
         $this->InstallEvents();
-        $this->InstallAgents();
+
+        // Создаем агенты при установке модуля
+        $agentManager = new AgentManager($this->MODULE_ID);
+        $agentManager->createAgent(CheckAgent::class, 300, date("d.m.Y H:i:s"), false);
+        $agentManager->createAgent(ImportAgent::class, 86400, date("d.m.Y H:i:s", time() + 86400), false);
     }
 
     public function DoUninstall()
     {
         $this->UnInstallEvents();
-        $this->UnInstallAgents();
+
+        // Удаляем агенты при удалении модуля
+        $agentManager = new AgentManager($this->MODULE_ID);
+        $agentManager->deleteAgent($agentManager->getAgentIdByName('CheckAgent'));
+        $agentManager->deleteAgent($agentManager->getAgentIdByName('ImportAgent'));
+
+        // Удаляем все параметры модуля из таблицы b_option
+        $this->deleteModuleOptions();
+
         ModuleManager::unRegisterModule($this->MODULE_ID);
+    }
+
+    private function deleteModuleOptions()
+    {
+        // Получаем список всех настроек для модуля
+        $options = Option::getForModule($this->MODULE_ID);
+
+        // Удаляем каждую настройку
+        foreach ($options as $optionName => $optionValue) {
+            Option::delete($this->MODULE_ID, ['name' => $optionName]);
+        }
+
+        // $connection = \Bitrix\Main\Application::getConnection();
+        // $sql = "DELETE FROM b_option WHERE MODULE_ID = '" . $connection->getSqlHelper()->forSql($this->MODULE_ID) . "'";
+        // $connection->queryExecute($sql);
     }
 
     public function InstallEvents()
@@ -74,54 +106,5 @@ class pragma_import_module extends CModule
             "Pragma\\ImportModule\\EventHandlers",
             "onSuccessCatalogImport1CHandler"
         );
-    }
-
-    public function InstallAgents()
-    {
-        // Создаем агенты при установке модуля (неактивные)
-        $checkAgentId = \CAgent::AddAgent(
-            "Pragma\\ImportModule\\Agent\\CheckAgent::run();", 
-            $this->MODULE_ID,
-            "N", // Агент неактивен
-            300, 
-            "", 
-            "Y", 
-            date("d.m.Y H:i:s"), 
-            100 
-        );
-        Option::set($this->MODULE_ID, "CHECK_AGENT_ID", $checkAgentId); 
-
-        $importAgentId = \CAgent::AddAgent(
-            "Pragma\\ImportModule\\Agent\\ImportAgent::run();", 
-            $this->MODULE_ID,
-            "N", // Агент неактивен
-            86400, 
-            "", 
-            "Y", 
-            date("d.m.Y H:i:s", time() + 86400),
-            100 
-        );
-        Option::set($this->MODULE_ID, "IMPORT_AGENT_ID", $importAgentId);
-
-        // Обходное решение: сразу деактивируем агенты после создания
-        \CAgent::Update($checkAgentId, array("ACTIVE" => "N")); 
-        \CAgent::Update($importAgentId, array("ACTIVE" => "N"));
-    }
-
-    public function UnInstallAgents()
-    {
-        // Удаляем агенты при удалении модуля
-        $checkAgentId = Option::get($this->MODULE_ID, "CHECK_AGENT_ID", 0);
-        $importAgentId = Option::get($this->MODULE_ID, "IMPORT_AGENT_ID", 0);
-
-        if ($checkAgentId > 0) {
-            \CAgent::Delete($checkAgentId);
-        }
-        if ($importAgentId > 0) {
-            \CAgent::Delete($importAgentId);
-        }
-
-        Option::delete($this->MODULE_ID, array("name" => "CHECK_AGENT_ID"));
-        Option::delete($this->MODULE_ID, array("name" => "IMPORT_AGENT_ID"));
     }
 }

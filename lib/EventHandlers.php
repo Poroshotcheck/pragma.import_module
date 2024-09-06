@@ -8,7 +8,7 @@ class EventHandlers
 {
     public static function onBeforeCatalogImport1CHandler()
     {
-        $moduleId = 'pragma.import_module';
+        $moduleId = 'pragma.importmodule';
         $currentTime = time();
 
         // Сохраняем время начала импорта в опцию модуля
@@ -27,7 +27,7 @@ class EventHandlers
 
     public static function onSuccessCatalogImport1CHandler()
     {
-        $moduleId = 'pragma.import_module';
+        $moduleId = 'pragma.importmodule';
 
         // Инкрементируем счетчик успешных завершений импорта
         $importSuccessCount = Option::get($moduleId, 'import_success_count', 0);

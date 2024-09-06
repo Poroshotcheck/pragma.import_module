@@ -3,15 +3,14 @@
 use Bitrix\Main\Localization\Loc;
 use Bitrix\Main\Config\Option;
 use Bitrix\Main\Loader;
-use Bitrix\Iblock\IblockTable;
 use Bitrix\Main\Application;
 use Pragma\ImportModule\Logger;
 use Pragma\ImportModule\SectionHelper;
-use Pragma\ImportModule\Agent\CheckAgent;
-use Pragma\ImportModule\Agent\ImportAgent;
-use Pragma\ImportModule\CacheHelper; // Добавляем use для CacheHelper
+use Pragma\ImportModule\CacheHelper;
+use Pragma\ImportModule\AgentManager;
+use Pragma\ImportModule\IblockHelper;
 
-$module_id = 'pragma.import_module';
+$module_id = 'pragma.importmodule';
 Loc::loadMessages(__FILE__);
 
 if ($APPLICATION->GetGroupRight($module_id) < "S") {
@@ -25,65 +24,28 @@ Loader::includeModule('iblock');
 require_once __DIR__ . '/default_option.php';
 
 // Инициализация логгера
-$logFile = $_SERVER['DOCUMENT_ROOT'] . "/local/modules/pragma.import_module/logs/import.log";
+$logFile = $_SERVER['DOCUMENT_ROOT'] . "/local/modules/pragma.importmodule/logs/import.log";
 Logger::init($logFile);
 
-// Проверка наличия агентов
-$checkAgentId = Option::get($module_id, "CHECK_AGENT_ID", 0);
-$importAgentId = Option::get($module_id, "IMPORT_AGENT_ID", 0);
+// Инициализация AgentManager
+$agentManager = new AgentManager($module_id);
 
-$agentExists = true;
-
-// Проверка агента CheckAgent
-if (!$checkAgentId || !\CAgent::GetByID($checkAgentId)->Fetch()) {
-    $checkAgentId = \CAgent::AddAgent(
-        "\\Pragma\\ImportModule\\Agent\\CheckAgent::run();",
-        $module_id,
-        "N",
-        300,
-        "",
-        "Y",
-        date("d.m.Y H:i:s"),
-        100
-    );
-    Option::set($module_id, "CHECK_AGENT_ID", $checkAgentId);
-    \CAgent::Update($checkAgentId, array("ACTIVE" => "N"));
-
-    if (!$checkAgentId) {
-        $agentExists = false;
-        Logger::log("Ошибка создания агента CheckAgent", "ERROR");
-        CAdminMessage::ShowMessage(Loc::getMessage("PRAGMA_IMPORT_MODULE_AGENT_CREATION_ERROR"));
-    }
+// Проверка наличия агентов и их создание, если необходимо
+if (!$agentManager->getAgentIdByName('CheckAgent')) {
+    $agentManager->createAgent(\Pragma\ImportModule\Agent\CheckAgent::class, 300, date("d.m.Y H:i:s"), false);
+}
+if (!$agentManager->getAgentIdByName('ImportAgent')) {
+    $agentManager->createAgent(\Pragma\ImportModule\Agent\ImportAgent::class, 86400, date("d.m.Y H:i:s", time() + 86400), false);
 }
 
-// Проверка агента ImportAgent
-if (!$importAgentId || !\CAgent::GetByID($importAgentId)->Fetch()) {
-    $importAgentId = \CAgent::AddAgent(
-        "\\Pragma\\ImportModule\\Agent\\ImportAgent::run();",
-        $module_id,
-        "N",
-        86400,
-        "",
-        "Y",
-        date("d.m.Y H:i:s", time() + 86400),
-        100
-    );
-    Option::set($module_id, "IMPORT_AGENT_ID", $importAgentId);
-    \CAgent::Update($importAgentId, array("ACTIVE" => "N")); // Деактивируем агент после создания
-
-    if (!$importAgentId) {
-        $agentExists = false;
-        Logger::log("Ошибка создания агента ImportAgent", "ERROR");
-        CAdminMessage::ShowMessage(Loc::getMessage("PRAGMA_IMPORT_MODULE_AGENT_CREATION_ERROR"));
-    }
-}
+// Получение информации об агенте ImportAgent
+$importAgentId = $agentManager->getAgentIdByName('ImportAgent');
+$importAgentInfo = $agentManager->getAgentInfo($importAgentId);
 
 // Синхронизация настроек
-if ($agentExists) {
-    $importAgentInfo = \CAgent::GetByID($importAgentId)->Fetch();
+if ($importAgentInfo) {
     Option::set($module_id, "AGENT_INTERVAL", $importAgentInfo['AGENT_INTERVAL']);
     Option::set($module_id, "AGENT_NEXT_EXEC", $importAgentInfo['NEXT_EXEC']);
-    Option::set($module_id, "AUTO_MODE", $importAgentInfo['ACTIVE'] === "Y" ? "Y" : "N");
 
     // Сохраняем актуальные данные агента в переменные
     $agentInterval = $importAgentInfo['AGENT_INTERVAL'];
@@ -93,7 +55,7 @@ if ($agentExists) {
 }
 
 // Обработка отправки формы
-$request = Application::getInstance()->getContext()->getRequest(); // Получение объекта запроса
+$request = Application::getInstance()->getContext()->getRequest();
 if ($request->isPost() && strlen($request->getPost("Update")) > 0 && check_bitrix_sessid()) {
     // Получение данных из запроса безопасным способом
     $iblockIdImport = intval($request->getPost("IBLOCK_ID_IMPORT"));
@@ -108,7 +70,6 @@ if ($request->isPost() && strlen($request->getPost("Update")) > 0 && check_bitri
     Option::set($module_id, "IBLOCK_ID_IMPORT", $iblockIdImport);
     Option::set($module_id, "IBLOCK_ID_CATALOG", $iblockIdCatalog);
     Option::set($module_id, "AUTO_MODE", $autoMode);
-
     if ($autoMode === "Y") {
         Option::set($module_id, "DELAY_TIME", $delayTime);
     } else {
@@ -136,18 +97,14 @@ if ($request->isPost() && strlen($request->getPost("Update")) > 0 && check_bitri
     if ($importAgentId > 0) {
         $agentFields = [
             "ACTIVE" => $autoMode === "Y" ? "N" : "Y",
+            "AGENT_INTERVAL" => intval($_POST["AGENT_INTERVAL"])
         ];
-
-        $agentFields["AGENT_INTERVAL"] = intval($_POST["AGENT_INTERVAL"]);
         $agentNextExec = $_POST["AGENT_NEXT_EXEC"];
-
         if (!empty($agentNextExec) && checkdate(date('m', strtotime($agentNextExec)), date('d', strtotime($agentNextExec)), date('Y', strtotime($agentNextExec)))) {
             $agentNextExec = date('d.m.Y H:i:s', strtotime($agentNextExec));
             $agentFields["NEXT_EXEC"] = $agentNextExec;
         }
-
-        $updateResult = \CAgent::Update($importAgentId, $agentFields);
-
+        $updateResult = $agentManager->updateAgent($importAgentId, $agentFields);
         if (!$updateResult) {
             Logger::log("Ошибка обновления агента: " . $importAgentId . " - " . $APPLICATION->GetException(), "ERROR");
             echo "<div class='adm-info-message'>" . Loc::getMessage("PRAGMA_IMPORT_MODULE_AGENT_UPDATE_ERROR") . ": " . $APPLICATION->GetException() . "</div>";
@@ -163,14 +120,12 @@ if ($request->isPost() && strlen($request->getPost("Update")) > 0 && check_bitri
         'AGENT_INTERVAL' => Option::get($module_id, "AGENT_INTERVAL"),
         'AGENT_NEXT_EXEC' => Option::get($module_id, "AGENT_NEXT_EXEC"),
         'SECTION_MAPPINGS' => unserialize(Option::get($module_id, "SECTION_MAPPINGS")),
-        'CHECK_AGENT_ID' => Option::get($module_id, "CHECK_AGENT_ID"),
-        'IMPORT_AGENT_ID' => Option::get($module_id, "IMPORT_AGENT_ID"),
     ];
-
-    $logFilePath = $_SERVER['DOCUMENT_ROOT'] . "/local/modules/pragma.import_module/logs/settings.json";
+    $logFilePath = $_SERVER['DOCUMENT_ROOT'] . "/local/modules/pragma.importmodule/logs/settings.json";
     file_put_contents($logFilePath, json_encode($settings, JSON_PRETTY_PRINT));
 
     // Обновляем кэш после сохранения настроек
+    CacheHelper::updateIblocksCache();
     if ($iblockIdCatalog > 0) {
         CacheHelper::updateSectionsCache($iblockIdCatalog);
     }
@@ -187,14 +142,7 @@ $agentNextExec = Option::get($module_id, "AGENT_NEXT_EXEC", '');
 $sectionMappings = unserialize(Option::get($module_id, "SECTION_MAPPINGS"));
 
 // Получение списка инфоблоков
-$arIblocks = [];
-$rsIblocks = IblockTable::getList([
-    'select' => ['ID', 'NAME'],
-    'order' => ['NAME' => 'ASC']
-]);
-while ($arIblock = $rsIblocks->fetch()) {
-    $arIblocks[$arIblock["ID"]] = $arIblock["NAME"];
-}
+$arIblocks = IblockHelper::getIblocks();
 
 // Массив с вкладками настроек
 $aTabs = [
@@ -216,12 +164,20 @@ $aTabs = [
 $tabControl = new CAdminTabControl("tabControl", $aTabs);
 
 // Подключение CSS
-$APPLICATION->SetAdditionalCSS('/local/modules/pragma.import_module/lib/css/styles.css');
+$APPLICATION->SetAdditionalCSS('/local/modules/pragma.importmodule/lib/css/styles.css');
+// Подключение JS
+$APPLICATION->AddHeadScript('/local/modules/pragma.importmodule/lib/js/script.js');
 
 $tabControl->Begin();
 ?>
 
+<?
+// echo "<pre>";
+// print_r($sectionMappings);
+// echo "</pre>";
+?>
 <form method="post" action="<?= $APPLICATION->GetCurPage() ?>?mid=<?= urlencode($module_id) ?>&lang=<?= LANGUAGE_ID ?>">
+
     <?= bitrix_sessid_post(); ?>
     <? $tabControl->BeginNextTab(); ?>
 
@@ -232,7 +188,6 @@ $tabControl->Begin();
         </td>
         <td width="60%">
             <select name="IBLOCK_ID_IMPORT" id="IBLOCK_ID_IMPORT">
-                <option value=""><?= Loc::getMessage("PRAGMA_IMPORT_MODULE_SELECT_IBLOCK") ?></option>
                 <? foreach ($arIblocks as $id => $name): ?>
                     <option value="<?= $id ?>" <? if ($iblockIdImport == $id)
                           echo "selected"; ?>><?= $name ?></option>
@@ -248,7 +203,6 @@ $tabControl->Begin();
         </td>
         <td width="60%">
             <select name="IBLOCK_ID_CATALOG" id="IBLOCK_ID_CATALOG">
-                <option value=""><?= Loc::getMessage("PRAGMA_IMPORT_MODULE_SELECT_IBLOCK") ?></option>
                 <? foreach ($arIblocks as $id => $name): ?>
                     <option value="<?= $id ?>" <? if ($iblockIdCatalog == $id)
                           echo "selected"; ?>><?= $name ?></option>
@@ -263,7 +217,7 @@ $tabControl->Begin();
             <label for="AUTO_MODE"><?= Loc::getMessage("PRAGMA_IMPORT_MODULE_AUTO_MODE") ?>:</label>
         </td>
         <td width="60%">
-            <input type="checkbox" name="AUTO_MODE" id="AUTO_MODE" value="Y" <?= $autoMode === "Y" ? "" : "checked" ?>>
+            <input type="checkbox" name="AUTO_MODE" id="AUTO_MODE" value="<?= $autoMode ?>" <?= $autoMode == "N" ? "" : "checked" ?>>
         </td>
     </tr>
 
@@ -320,23 +274,18 @@ $tabControl->Begin();
                     <div class="section-mapping">
                         <select name="SECTION_MAPPINGS[<?= $index ?>][SECTION_ID]" class="section-select"
                             data-index="<?= $index ?>">
-                            <option value=""><?= Loc::getMessage("PRAGMA_IMPORT_MODULE_SELECT_SECTION") ?></option>
                             <?php
                             // Если IBLOCK_ID_CATALOG выбран, загружаем опции разделов
                             if ($iblockIdCatalog) {
                                 if ($sections) {
                                     // Если кэш не пуст, выводим разделы
                                     echo SectionHelper::getSectionOptionsHtml($iblockIdCatalog, $mapping['SECTION_ID'], $sections); // Передаем $sections
-                                } else {
-                                    // Если кэш пуст, выводим пустой select
-                                    echo '<select name="SECTION_MAPPINGS[' . $index . '][SECTION_ID]" class="section-select" data-index="' . $index . '">
-                                        <option value="">' . Loc::getMessage("PRAGMA_IMPORT_MODULE_SELECT_SECTION") . '</option>
-                                    </select>';
                                 }
                             }
                             ?>
                         </select>
-
+                        <button type="button"
+                            onclick="removeMapping(this)"><?= Loc::getMessage("PRAGMA_IMPORT_MODULE_REMOVE_MAPPING") ?></button>
                         <div class="properties-container">
                             <?php foreach ($mapping['PROPERTIES'] as $propIndex => $property): ?>
                                 <div class="property">
@@ -349,8 +298,6 @@ $tabControl->Begin();
                         </div>
                         <button type="button"
                             onclick="addProperty(this)"><?= Loc::getMessage("PRAGMA_IMPORT_MODULE_ADD_PROPERTY") ?></button>
-                        <button type="button"
-                            onclick="removeMapping(this)"><?= Loc::getMessage("PRAGMA_IMPORT_MODULE_REMOVE_MAPPING") ?></button>
                     </div>
                 <?php endforeach; ?>
             </div>
@@ -363,9 +310,15 @@ $tabControl->Begin();
     <input type="submit" name="Update" value="<?= Loc::getMessage("MAIN_SAVE") ?>"
         title="<?= Loc::getMessage("MAIN_OPT_SAVE_TITLE") ?>" class="adm-btn-save">
     <input type="reset" name="reset" id="resetButton" value="<?= Loc::getMessage("MAIN_RESET") ?>">
+
     <? $tabControl->End(); ?>
 </form>
 
+
+<!-- 
+$APPLICATION->AddHeadScript('/local/modules/pragma.importmodule/lib/js/script.js'); НЕ РАБОТАЕТ
+<script src="/local/modules/pragma.importmodule/lib/js/script.js"></script>' НЕ РАБОТАЕТ
+-->
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         var autoModeCheckbox = document.getElementById('AUTO_MODE');
@@ -440,9 +393,9 @@ $tabControl->Begin();
         var newProperty = document.createElement('div');
         newProperty.className = 'property';
         newProperty.innerHTML = `
-        <input type="text" name="">
-        <button type="button" onclick="removeProperty(this)"><?= Loc::getMessage("PRAGMA_IMPORT_MODULE_REMOVE_PROPERTY") ?></button>
-    `;
+    <input type="text" name="">
+    <button type="button" onclick="removeProperty(this)"><?= Loc::getMessage("PRAGMA_IMPORT_MODULE_REMOVE_PROPERTY") ?></button>
+`;
         container.appendChild(newProperty);
 
         // Обновляем имя поля
@@ -459,7 +412,7 @@ $tabControl->Begin();
     function updateSectionOptions(iblockId, selectElement = null, selectedSectionId = null) {
         if (!iblockId) return;
 
-        fetch(`/local/modules/pragma.import_module/lib/ajax.php?IBLOCK_ID=${iblockId}`)
+        fetch(`/local/modules/pragma.importmodule/lib/ajax.php?IBLOCK_ID=${iblockId}`)
             .then(response => response.text())
             .then(html => {
                 const selectsToUpdate = selectElement ? [selectElement] : document.querySelectorAll('.section-select');
@@ -491,10 +444,10 @@ $tabControl->Begin();
         // Устанавливаем значения по умолчанию для полей формы
         document.getElementById('IBLOCK_ID_IMPORT').value = defaultOptions.IBLOCK_ID_IMPORT;
         document.getElementById('IBLOCK_ID_CATALOG').value = defaultOptions.IBLOCK_ID_CATALOG;
-        document.getElementById('AUTO_MODE').checked = defaultOptions.AUTO_MODE === 'Y';
+        document.getElementById('AUTO_MODE').checked = defaultOptions.AUTO_MODE;
         document.getElementById('DELAY_TIME').value = defaultOptions.DELAY_TIME;
         document.getElementById('AGENT_INTERVAL').value = <?= $agentInterval ?>; // Используем актуальные данные агента
-        document.getElementById('AGENT_NEXT_EXEC').value = '<?= date('Y-m-d\TH:i', strtotime($agentNextExec)) ?>'; // Используем актуальные данные агента
+        document.getElementById('AGENT_NEXT_EXEC').value = '<?= date('Y - m - d\TH:i', strtotime($agentNextExec)) ?>'; // Используем актуальные данные агента
 
         // Очищаем все сопоставления разделов
         const container = document.getElementById('section_mappings_container');
@@ -523,7 +476,6 @@ $tabControl->Begin();
     <div class="section-mapping">
         <div class="select-wrapper">
             <select name="SECTION_MAPPINGS[{index}][SECTION_ID]" class="section-select">
-                <option value=""><?= Loc::getMessage("PRAGMA_IMPORT_MODULE_SELECT_SECTION") ?></option>
             </select>
             <button type="button" onclick="removeMapping(this)">
                 <?= Loc::getMessage("PRAGMA_IMPORT_MODULE_REMOVE_MAPPING") ?>
