@@ -64,10 +64,6 @@ class pragma_importmodule extends CModule
         foreach ($options as $optionName => $optionValue) {
             Option::delete($this->MODULE_ID, ['name' => $optionName]);
         }
-
-        // $connection = \Bitrix\Main\Application::getConnection();
-        // $sql = "DELETE FROM b_option WHERE MODULE_ID = '" . $connection->getSqlHelper()->forSql($this->MODULE_ID) . "'";
-        // $connection->queryExecute($sql);
     }
 
     public function InstallEvents()

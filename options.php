@@ -111,19 +111,6 @@ if ($request->isPost() && strlen($request->getPost("Update")) > 0 && check_bitri
         }
     }
 
-    // Записываем все настройки модуля в JSON-файл
-    $settings = [
-        'IBLOCK_ID_IMPORT' => Option::get($module_id, "IBLOCK_ID_IMPORT"),
-        'IBLOCK_ID_CATALOG' => Option::get($module_id, "IBLOCK_ID_CATALOG"),
-        'AUTO_MODE' => Option::get($module_id, "AUTO_MODE"),
-        'DELAY_TIME' => Option::get($module_id, "DELAY_TIME"),
-        'AGENT_INTERVAL' => Option::get($module_id, "AGENT_INTERVAL"),
-        'AGENT_NEXT_EXEC' => Option::get($module_id, "AGENT_NEXT_EXEC"),
-        'SECTION_MAPPINGS' => unserialize(Option::get($module_id, "SECTION_MAPPINGS")),
-    ];
-    $logFilePath = $_SERVER['DOCUMENT_ROOT'] . "/local/modules/pragma.importmodule/logs/settings.json";
-    file_put_contents($logFilePath, json_encode($settings, JSON_PRETTY_PRINT));
-
     // Обновляем кэш после сохранения настроек
     CacheHelper::updateIblocksCache();
     if ($iblockIdCatalog > 0) {
@@ -171,11 +158,6 @@ $APPLICATION->AddHeadScript('/local/modules/pragma.importmodule/lib/js/script.js
 $tabControl->Begin();
 ?>
 
-<?
-// echo "<pre>";
-// print_r($sectionMappings);
-// echo "</pre>";
-?>
 <form method="post" action="<?= $APPLICATION->GetCurPage() ?>?mid=<?= urlencode($module_id) ?>&lang=<?= LANGUAGE_ID ?>">
 
     <?= bitrix_sessid_post(); ?>

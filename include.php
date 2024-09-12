@@ -16,5 +16,6 @@ Loader::registerAutoLoadClasses(
         'Pragma\\ImportModule\\IblockHelper' => 'lib/IblockHelper.php',
         'Pragma\\ImportModule\\AgentManager' => 'lib/AgentManager.php',
         'Pragma\\ImportModule\\Agent\\MainCode\\IblockPropertiesCopier' => 'lib/agent/main_code/IblockPropertiesCopier.php',
+        'Pragma\\ImportModule\\Agent\\MainCode\\SectionTreeCreator' => 'lib/agent/main_code/SectionTreeCreator.php',
     ]
 );

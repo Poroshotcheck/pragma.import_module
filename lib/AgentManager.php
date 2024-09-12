@@ -2,8 +2,6 @@
 
 namespace Pragma\ImportModule;
 
-require_once($_SERVER["DOCUMENT_ROOT"] . "/local/modules/pragma.importmodule/lib/Logger.php");
-
 use Pragma\ImportModule\Logger;
 use Bitrix\Main\Config\Option;
 
