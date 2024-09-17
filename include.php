@@ -11,6 +11,7 @@ Loader::registerAutoLoadClasses(
         'Pragma\\ImportModule\\EventHandlers' => 'lib/EventHandlers.php',
         'Pragma\\ImportModule\\Logger' => 'lib/Logger.php',
         'Pragma\\ImportModule\\ImportHelper' => 'lib/ImportHelper.php',
+        'Pragma\\ImportModule\\PropertyHelper' => 'lib/PropertyHelper.php',
         'Pragma\\ImportModule\\CacheHelper' => 'lib/CacheHelper.php',
         'Pragma\\ImportModule\\SectionHelper' => 'lib/SectionHelper.php',
         'Pragma\\ImportModule\\IblockHelper' => 'lib/IblockHelper.php',

@@ -1,6 +1,6 @@
 <?php
 
-namespace Pragma\ImportModule; 
+namespace Pragma\ImportModule;
 
 use Pragma\ImportModule\Logger;
 use Bitrix\Main\Data\Cache;
@@ -136,5 +136,55 @@ class CacheHelper
         $cacheId = "iblocks_cache";
         $cache->clean($cacheId, self::$cacheDir);
         Logger::log("Кэш инфоблоков очищен");
+    }
+
+    public static function getCachedProperties($iblockId)
+    {
+        Logger::log("Попытка получить свойства из кэша для инфоблока: " . $iblockId);
+
+        $cache = Cache::createInstance();
+        $cacheId = "properties_cache_iblock_" . $iblockId;
+
+        if ($cache->initCache(604800, $cacheId, self::$cacheDir)) {
+            $properties = $cache->getVars();
+            Logger::log("Получены свойства из кэша для инфоблока: " . $iblockId);
+            return $properties;
+        }
+
+        Logger::log("Свойства не найдены в кэше");
+        return false;
+    }
+
+    public static function saveCachedProperties($iblockId, $properties)
+    {
+        Logger::log("Попытка сохранить свойства в кэш для инфоблока: " . $iblockId);
+
+        $cache = Cache::createInstance();
+        $cacheId = "properties_cache_iblock_" . $iblockId;
+
+        if ($cache->startDataCache(604800, $cacheId, self::$cacheDir)) {
+            $cache->endDataCache([$properties]);
+            Logger::log("Свойства успешно сохранены в кэш");
+            return true;
+        }
+
+        Logger::log("Ошибка сохранения свойств в кэш", "ERROR");
+        return false;
+    }
+
+    public static function updatePropertiesCache($iblockId)
+    {
+        self::clearPropertiesCache($iblockId);
+        $properties = PropertyHelper::getIblockProperties($iblockId);
+        self::saveCachedProperties($iblockId, $properties);
+        Logger::log("Кэш свойств обновлён для инфоблока: " . $iblockId);
+    }
+
+    public static function clearPropertiesCache($iblockId)
+    {
+        $cache = Cache::createInstance();
+        $cacheId = "properties_cache_iblock_" . $iblockId;
+        $cache->clean($cacheId, self::$cacheDir);
+        Logger::log("Кэш свойств очищен для инфоблока: " . $iblockId);
     }
 }

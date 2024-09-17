@@ -9,6 +9,7 @@ use Pragma\ImportModule\SectionHelper;
 use Pragma\ImportModule\CacheHelper;
 use Pragma\ImportModule\AgentManager;
 use Pragma\ImportModule\IblockHelper;
+use Pragma\ImportModule\PropertyHelper;
 
 $module_id = 'pragma.importmodule';
 Loc::loadMessages(__FILE__);
@@ -31,10 +32,10 @@ Logger::init($logFile);
 $agentManager = new AgentManager($module_id);
 
 // Проверка наличия агентов и их создание, если необходимо
-if (!$agentManager->getAgentIdByName('CheckAgent')) {
+if (!$agentManager->getAgentInfo($agentManager->getAgentIdByName('CheckAgent'))) {
     $agentManager->createAgent(\Pragma\ImportModule\Agent\CheckAgent::class, 300, date("d.m.Y H:i:s"), false);
 }
-if (!$agentManager->getAgentIdByName('ImportAgent')) {
+if (!$agentManager->getAgentInfo($agentManager->getAgentIdByName('ImportAgent'))) {
     $agentManager->createAgent(\Pragma\ImportModule\Agent\ImportAgent::class, 86400, date("d.m.Y H:i:s", time() + 86400), false);
 }
 
@@ -65,6 +66,7 @@ if ($request->isPost() && strlen($request->getPost("Update")) > 0 && check_bitri
     $agentInterval = intval($request->getPost("AGENT_INTERVAL"));
     $agentNextExec = htmlspecialcharsbx($request->getPost("AGENT_NEXT_EXEC")); // Экранирование
     $sectionMappings = $request->getPost("SECTION_MAPPINGS");
+    $importMappings = $request->getPost("IMPORT_MAPPINGS"); // Получение настроек новой вкладки
 
     // Сохранение настроек
     Option::set($module_id, "IBLOCK_ID_IMPORT", $iblockIdImport);
@@ -77,7 +79,7 @@ if ($request->isPost() && strlen($request->getPost("Update")) > 0 && check_bitri
         Option::set($module_id, "AGENT_NEXT_EXEC", $agentNextExec);
     }
 
-    // Обработка сопоставлений разделов
+    // Обработка сопоставлений разделов для IBLOCK_ID_CATALOG
     if (is_array($sectionMappings)) {
         foreach ($sectionMappings as &$mapping) {
             if (isset($mapping['SECTION_ID'])) {
@@ -91,6 +93,30 @@ if ($request->isPost() && strlen($request->getPost("Update")) > 0 && check_bitri
             }
         }
         Option::set($module_id, "SECTION_MAPPINGS", serialize($sectionMappings));
+    }
+
+    // Обработка сопоставлений разделов для IBLOCK_ID_IMPORT
+    if (is_array($importMappings)) {
+        $newImportMappings = [];
+        foreach ($importMappings as $mapping) {
+            $sectionId = intval($mapping['SECTION_ID']);
+            $newImportMappings[$sectionId] = [
+                'SECTION_ID' => $sectionId,
+                'TOTAL_MATCHES' => intval($mapping['TOTAL_MATCHES']),
+                'PROPERTIES' => [],
+            ];
+
+            if (isset($mapping['PROPERTIES']) && is_array($mapping['PROPERTIES'])) {
+                foreach ($mapping['PROPERTIES'] as $propertyCode => $property) {
+                    $propertyCode = htmlspecialcharsbx($propertyCode);
+                    $newImportMappings[$sectionId]['PROPERTIES'][$propertyCode] = [
+                        'MATCHES' => intval($property['MATCHES']),
+                        'CODE' => htmlspecialcharsbx($property['CODE']),
+                    ];
+                }
+            }
+        }
+        Option::set($module_id, "IMPORT_MAPPINGS", serialize($newImportMappings));
     }
 
     // Обновляем агент
@@ -116,6 +142,10 @@ if ($request->isPost() && strlen($request->getPost("Update")) > 0 && check_bitri
     if ($iblockIdCatalog > 0) {
         CacheHelper::updateSectionsCache($iblockIdCatalog);
     }
+    if ($iblockIdImport > 0) {
+        CacheHelper::updateSectionsCache($iblockIdImport);
+        CacheHelper::updatePropertiesCache($iblockIdImport);
+    }
     LocalRedirect($APPLICATION->GetCurPage() . "?mid=" . urlencode($module_id) . "&lang=" . LANGUAGE_ID);
 }
 
@@ -127,6 +157,7 @@ $delayTime = Option::get($module_id, "DELAY_TIME", $pragma_import_module_default
 $agentInterval = Option::get($module_id, "AGENT_INTERVAL", $pragma_import_module_default_option['AGENT_INTERVAL']);
 $agentNextExec = Option::get($module_id, "AGENT_NEXT_EXEC", '');
 $sectionMappings = unserialize(Option::get($module_id, "SECTION_MAPPINGS"));
+$importMappings = unserialize(Option::get($module_id, "IMPORT_MAPPINGS")); // Получение настроек новой вкладки
 
 // Получение списка инфоблоков
 $arIblocks = IblockHelper::getIblocks();
@@ -139,25 +170,35 @@ $aTabs = [
         "ICON" => "pragma_import_module_settings",
         "TITLE" => Loc::getMessage("PRAGMA_IMPORT_MODULE_SETTINGS"),
     ],
-    [ // Новый таб
+    [
         "DIV" => "edit2",
-        "TAB" => Loc::getMessage("PRAGMA_IMPORT_MODULE_SECTION_MAPPINGS"), // Название таба
+        "TAB" => Loc::getMessage("PRAGMA_IMPORT_MODULE_SECTION_MAPPINGS"),
         "ICON" => "pragma_import_module_section_mappings",
-        "TITLE" => Loc::getMessage("PRAGMA_IMPORT_MODULE_SECTION_MAPPINGS_TITLE"), // Заголовок таба
+        "TITLE" => Loc::getMessage("PRAGMA_IMPORT_MODULE_SECTION_MAPPINGS_TITLE"),
+    ],
+    [ // Новая вкладка
+        "DIV" => "edit3",
+        "TAB" => Loc::getMessage("PRAGMA_IMPORT_MODULE_IMPORT_MAPPINGS"),
+        "ICON" => "pragma_import_module_import_mappings",
+        "TITLE" => Loc::getMessage("PRAGMA_IMPORT_MODULE_IMPORT_MAPPINGS_TITLE"),
     ],
 ];
 
 // Создание объекта CAdminTabControl для управления вкладками
 $tabControl = new CAdminTabControl("tabControl", $aTabs);
-
 // Подключение CSS
 $APPLICATION->SetAdditionalCSS('/local/modules/pragma.importmodule/lib/css/styles.css');
-// Подключение JS
-$APPLICATION->AddHeadScript('/local/modules/pragma.importmodule/lib/js/script.js');
 
 $tabControl->Begin();
 ?>
+<?
 
+
+// echo "<pre>";
+// var_dump();
+// echo "</pre>";
+
+?>
 <form method="post" action="<?= $APPLICATION->GetCurPage() ?>?mid=<?= urlencode($module_id) ?>&lang=<?= LANGUAGE_ID ?>">
 
     <?= bitrix_sessid_post(); ?>
@@ -177,7 +218,6 @@ $tabControl->Begin();
             </select>
         </td>
     </tr>
-
     <!-- Инфоблок каталога -->
     <tr>
         <td width="40%">
@@ -261,7 +301,7 @@ $tabControl->Begin();
                             if ($iblockIdCatalog) {
                                 if ($sections) {
                                     // Если кэш не пуст, выводим разделы
-                                    echo SectionHelper::getSectionOptionsHtml($iblockIdCatalog, $mapping['SECTION_ID'], $sections); // Передаем $sections
+                                    echo SectionHelper::getSectionOptionsHtml($iblockIdCatalog, $mapping['SECTION_ID'], $sections);
                                 }
                             }
                             ?>
@@ -288,6 +328,81 @@ $tabControl->Begin();
         </td>
     </tr>
 
+    <? $tabControl->BeginNextTab(); ?>
+
+    <!-- Множественная настройка сопоставления разделов и свойств для IBLOCK_ID_IMPORT -->
+    <tr>
+        <td colspan="2">
+            <div id="import_mappings_container">
+                <?php
+                if (empty($importMappings)) {
+                    $importMappings = [];
+                }
+
+                // Получаем данные из кэша один раз перед циклом 
+                $cachedSectionsImport = CacheHelper::getCachedSections($iblockIdImport);
+                $sectionsImport = $cachedSectionsImport ? $cachedSectionsImport[0] : [];
+                $cachedPropertiesImport = CacheHelper::getCachedProperties($iblockIdImport);
+                $propertiesImport = $cachedPropertiesImport ? $cachedPropertiesImport[0] : [];
+
+                foreach ($importMappings as $sectionId => $mapping):
+                    ?>
+                    <div class="import-mapping" data-section-id="<?= $sectionId ?>">
+                        <select name="IMPORT_MAPPINGS[<?= $sectionId ?>][SECTION_ID]" class="import-section-select"
+                            data-index="<?= $sectionId ?>">
+                            <?php
+                            if ($iblockIdImport) {
+                                echo SectionHelper::getSectionOptionsHtml($iblockIdImport, $mapping['SECTION_ID'], $sectionsImport);
+                            }
+                            ?>
+                        </select>
+                        <button type="button"
+                            onclick="removeImportMapping(this)"><?= Loc::getMessage("PRAGMA_IMPORT_MODULE_REMOVE_MAPPING") ?></button>
+
+                        <div class="total-matches-container">
+                            <label for="IMPORT_MAPPINGS[<?= $sectionId ?>][TOTAL_MATCHES]">
+                                <?= Loc::getMessage("PRAGMA_IMPORT_MODULE_TOTAL_MATCHES") ?>:
+                            </label>
+                            <select name="IMPORT_MAPPINGS[<?= $sectionId ?>][TOTAL_MATCHES]"
+                                id="IMPORT_MAPPINGS[<?= $sectionId ?>][TOTAL_MATCHES]">
+                                <?php for ($i = 0; $i <= 5; $i++): ?>
+                                    <option value="<?= $i ?>" <?= ($mapping['TOTAL_MATCHES'] == $i) ? 'selected' : '' ?>><?= $i ?>
+                                    </option>
+                                <?php endfor; ?>
+                            </select>
+                        </div>
+
+                        <div class="import-properties-container" data-index="<?= $sectionId ?>">
+                            <?php foreach ($mapping['PROPERTIES'] as $propCode => $property): ?>
+                                <div class="import-property" data-property-code="<?= $propCode ?>">
+                                    <select name="IMPORT_MAPPINGS[<?= $sectionId ?>][PROPERTIES][<?= $propCode ?>][CODE]"
+                                        class="property-select-import" data-index="<?= $propCode ?>">
+                                        <?php
+                                        echo PropertyHelper::getPropertyOptionsHtml($iblockIdImport, $property['CODE'], $propertiesImport);
+                                        ?>
+                                    </select>
+                                    <select name="IMPORT_MAPPINGS[<?= $sectionId ?>][PROPERTIES][<?= $propCode ?>][MATCHES]">
+                                        <?php for ($i = 1; $i <= 5; $i++): ?>
+                                            <option value="<?= $i ?>" <?= ($mapping['PROPERTIES'][$propCode]['MATCHES'] == $i) ? 'selected' : '' ?>>
+                                                <?= $i ?>
+                                            </option>
+                                        <?php endfor; ?>
+                                    </select>
+                                    <button type="button"
+                                        onclick="removeImportProperty(this)"><?= Loc::getMessage("PRAGMA_IMPORT_MODULE_REMOVE_PROPERTY") ?></button>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                        <button type="button" class="add-import-property-button"
+                            onclick="addImportProperty('<?= $sectionId ?>')"><?= Loc::getMessage("PRAGMA_IMPORT_MODULE_ADD_PROPERTY") ?></button>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+            <button type="button" onclick="addImportMapping()"
+                class="add-mapping-button"><?= Loc::getMessage("PRAGMA_IMPORT_MODULE_ADD_MAPPING") ?></button>
+        </td>
+    </tr>
+
     <? $tabControl->Buttons(); ?>
     <input type="submit" name="Update" value="<?= Loc::getMessage("MAIN_SAVE") ?>"
         title="<?= Loc::getMessage("MAIN_OPT_SAVE_TITLE") ?>" class="adm-btn-save">
@@ -296,11 +411,61 @@ $tabControl->Begin();
     <? $tabControl->End(); ?>
 </form>
 
+<template id="section-mapping-template">
+    <div class="section-mapping">
+        <div class="select-wrapper">
+            <select name="SECTION_MAPPINGS[{index}][SECTION_ID]" class="section-select">
+            </select>
+            <button type="button" onclick="removeMapping(this)">
+                <?= Loc::getMessage("PRAGMA_IMPORT_MODULE_REMOVE_MAPPING") ?>
+            </button>
+        </div>
+        <div class="properties-container">
+            <div class="property">
+                <input type="text" name="SECTION_MAPPINGS[{index}][PROPERTIES][]">
+                <button type="button" onclick="removeProperty(this)">
+                    <?= Loc::getMessage("PRAGMA_IMPORT_MODULE_REMOVE_PROPERTY") ?>
+                </button>
+            </div>
+        </div>
+        <button type="button" onclick="addProperty(this)">
+            <?= Loc::getMessage("PRAGMA_IMPORT_MODULE_ADD_PROPERTY") ?>
+        </button>
+    </div>
+</template>
 
-<!-- 
-$APPLICATION->AddHeadScript('/local/modules/pragma.importmodule/lib/js/script.js'); НЕ РАБОТАЕТ
-<script src="/local/modules/pragma.importmodule/lib/js/script.js"></script>' НЕ РАБОТАЕТ
--->
+<template id="import-mapping-template">
+    <div class="import-mapping" data-section-id="{index}">
+        <select name="IMPORT_MAPPINGS[{index}][SECTION_ID]" class="import-section-select" data-index="{index}">
+            <!-- Опции разделов будут загружены сюда -->
+        </select>
+        <button type="button"
+            onclick="removeImportMapping(this)"><?= Loc::getMessage("PRAGMA_IMPORT_MODULE_REMOVE_MAPPING") ?></button>
+
+        <div class="total-matches-container">
+            <label for="IMPORT_MAPPINGS[{index}][TOTAL_MATCHES]">
+                <?= Loc::getMessage("PRAGMA_IMPORT_MODULE_TOTAL_MATCHES") ?>:
+            </label>
+            <select name="IMPORT_MAPPINGS[{index}][TOTAL_MATCHES]" id="IMPORT_MAPPINGS[{index}][TOTAL_MATCHES]">
+                <option value="0">0</option>
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+                <option value="5">5</option>
+            </select>
+        </div>
+
+        <div class="import-properties-container" data-index="{index}">
+            <!-- Сюда будут добавляться свойства -->
+        </div>
+
+        <button type="button" class="add-import-property-button" onclick="addImportProperty('{index}')">
+            <?= Loc::getMessage("PRAGMA_IMPORT_MODULE_ADD_PROPERTY") ?>
+        </button>
+    </div>
+</template>
+
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         var autoModeCheckbox = document.getElementById('AUTO_MODE');
@@ -337,13 +502,59 @@ $APPLICATION->AddHeadScript('/local/modules/pragma.importmodule/lib/js/script.js
             }
         });
 
+        // Обновление списка разделов и свойств импорта при изменении инфоблока импорта
+        document.getElementById('IBLOCK_ID_IMPORT').addEventListener('change', function () {
+            const iblockId = this.value;
+            if (iblockId) {
+                updateImportSectionOptions(iblockId);
+                const propertySelects = document.querySelectorAll('.property-select-import');
+                propertySelects.forEach(select => {
+                    updatePropertyOptionsImport(iblockId, select);
+                });
+            } else {
+                // Если инфоблок не выбран, очищаем все списки разделов импорта
+                const importSectionSelects = document.querySelectorAll('.import-section-select');
+                importSectionSelects.forEach(select => {
+                    select.innerHTML = '<option value="">' + select.options[0].text + '</option>';
+                });
+
+                // Очищаем все списки свойств
+                const propertySelects = document.querySelectorAll('.property-select-import');
+                propertySelects.forEach(select => {
+                    select.innerHTML = '<option value="">' + select.options[0].text + '</option>';
+                });
+            }
+        });
+
         // Проверяем наличие опций в select'ах
         const sectionSelects = document.querySelectorAll('.section-select');
         sectionSelects.forEach(select => {
-            if (select.options.length <= 1) { // <= 1, так как есть пустая опция
+            if (select.options.length <= 1) {
                 const iblockId = document.getElementById('IBLOCK_ID_CATALOG').value;
                 if (iblockId) {
                     updateSectionOptions(iblockId, select);
+                }
+            }
+        });
+
+        // Проверяем наличие опций в select'ах импорта
+        const importSectionSelects = document.querySelectorAll('.import-section-select');
+        importSectionSelects.forEach(select => {
+            if (select.options.length <= 1) {
+                const iblockId = document.getElementById('IBLOCK_ID_IMPORT').value;
+                if (iblockId) {
+                    updateImportSectionOptions(iblockId, select);
+                }
+            }
+        });
+
+        // Проверяем наличие опций в select'ах свойств импорта
+        const propertySelects = document.querySelectorAll('.property-select-import');
+        propertySelects.forEach(select => {
+            if (select.options.length <= 1) {
+                const iblockId = document.getElementById('IBLOCK_ID_IMPORT').value;
+                if (iblockId) {
+                    updatePropertyOptionsImport(iblockId, select);
                 }
             }
         });
@@ -417,6 +628,169 @@ $APPLICATION->AddHeadScript('/local/modules/pragma.importmodule/lib/js/script.js
             .catch(error => console.error('Error fetching section options:', error));
     }
 
+    function addImportMapping() {
+        const template = document.getElementById('import-mapping-template');
+        const container = document.getElementById('import_mappings_container');
+        if (!template || !container) {
+            console.error('Template or container not found');
+            return;
+        }
+
+        const index = Date.now(); // Используем timestamp для уникального индекса
+
+        // Клонируем содержимое шаблона
+        const newMapping = template.content.cloneNode(true).firstElementChild;
+        newMapping.dataset.sectionId = index;
+
+        // Обновляем имена и индексы в новом элементе
+        newMapping.querySelector('select.import-section-select').name = `IMPORT_MAPPINGS[${index}][SECTION_ID]`;
+        newMapping.querySelector('select.import-section-select').dataset.index = index;
+        newMapping.querySelector('select[id^="IMPORT_MAPPINGS"]').name = `IMPORT_MAPPINGS[${index}][TOTAL_MATCHES]`;
+        newMapping.querySelector('select[id^="IMPORT_MAPPINGS"]').id = `IMPORT_MAPPINGS[${index}][TOTAL_MATCHES]`;
+        newMapping.querySelector('.import-properties-container').dataset.index = index;
+        newMapping.querySelector('button[onclick^="addImportProperty"]').setAttribute('onclick', `addImportProperty('${index}')`);
+
+        // Добавляем новый элемент в контейнер
+        container.appendChild(newMapping);
+
+        // Загружаем опции для нового select раздела
+        const newSectionSelect = newMapping.querySelector('.import-section-select');
+        updateImportSectionOptions(document.getElementById('IBLOCK_ID_IMPORT').value, newSectionSelect);
+    }
+
+    function removeImportMapping(button) {
+        button.closest('.import-mapping').remove();
+    }
+
+    function addImportProperty(mappingIndex) {
+        const mapping = typeof mappingIndex === 'object'
+            ? mappingIndex.closest('.import-mapping')
+            : document.querySelector(`.import-mapping[data-section-id="${mappingIndex}"]`);
+
+        if (!mapping) {
+            console.error(`Mapping not found for index ${mappingIndex}`);
+            return;
+        }
+
+        const propertiesContainer = mapping.querySelector('.import-properties-container');
+        if (!propertiesContainer) {
+            console.error(`Properties container not found in mapping ${mappingIndex}`);
+            return;
+        }
+
+        const iblockIdImport = document.getElementById('IBLOCK_ID_IMPORT').value;
+        const sectionId = mapping.dataset.sectionId;
+
+        // Создаем новый div для свойства
+        const newProperty = document.createElement('div');
+        newProperty.className = 'import-property';
+
+        // Создаем новый select для выбора кода свойства
+        const propertyCodeSelect = document.createElement('select');
+        propertyCodeSelect.className = 'property-select-import';
+        propertyCodeSelect.dataset.index = ''; // Изначально data-index пустой
+
+        // Добавляем select для выбора кода свойства в newProperty
+        newProperty.appendChild(propertyCodeSelect);
+
+        // Добавляем select для matches
+        const matchesSelect = document.createElement('select');
+        matchesSelect.innerHTML = `
+        <option value="1">1</option>
+        <option value="2">2</option>
+        <option value="3">3</option>
+        <option value="4">4</option>
+        <option value="5">5</option>
+    `;
+        newProperty.appendChild(matchesSelect);
+
+        // Добавляем кнопку удаления
+        const removeButton = document.createElement('button');
+        removeButton.type = 'button';
+        // removeButton.textContent = '⨯';
+
+        removeButton.setAttribute('onclick', 'removeImportProperty(this)');
+        newProperty.appendChild(removeButton);
+        removeButton.textContent = '<?= Loc::getMessage("PRAGMA_IMPORT_MODULE_REMOVE_PROPERTY") ?>';
+
+        // Добавляем newProperty в propertiesContainer
+        propertiesContainer.appendChild(newProperty);
+
+        // Загружаем доступные коды свойств
+        updatePropertyOptionsImport(iblockIdImport, propertyCodeSelect, function () {
+            // Получаем код выбранного свойства
+            const propertyCode = propertyCodeSelect.value;
+
+            // Обновляем имена и атрибуты после добавления в DOM
+            newProperty.dataset.propertyCode = propertyCode;
+            propertyCodeSelect.name = `IMPORT_MAPPINGS[${sectionId}][PROPERTIES][${propertyCode}][CODE]`;
+            propertyCodeSelect.dataset.index = propertyCode;
+            matchesSelect.name = `IMPORT_MAPPINGS[${sectionId}][PROPERTIES][${propertyCode}][MATCHES]`;
+        });
+
+        // Добавляем обработчик изменения кода свойства
+        propertyCodeSelect.addEventListener('change', function () {
+            // Обновляем имя select для matches при изменении кода свойства
+            matchesSelect.name = `IMPORT_MAPPINGS[${sectionId}][PROPERTIES][${this.value}][MATCHES]`;
+            newProperty.dataset.propertyCode = this.value;
+
+            // Обновляем data-index при изменении кода свойства
+            this.dataset.index = this.value;
+            this.name = `IMPORT_MAPPINGS[${sectionId}][PROPERTIES][${this.value}][CODE]`;
+        });
+    }
+
+
+    function removeImportProperty(button) {
+        button.closest('.import-property').remove();
+    }
+
+    // Функция для загрузки разделов для второго таба
+    function updateImportSectionOptions(iblockId, selectElement = null) {
+        if (!iblockId) return;
+        fetch(`/local/modules/pragma.importmodule/lib/ajax.php?IBLOCK_ID=${iblockId}`)
+            .then(response => {
+                return response.text();
+            })
+            .then(html => {
+                if (selectElement) {
+                    selectElement.innerHTML = html; // Обновляем только переданный select
+
+                    // Добавляем первое свойство после загрузки разделов
+                    const mappingIndex = selectElement.closest('.import-mapping').dataset.sectionId;
+
+                    // !!! Ищем propertyCodeSelect внутри selectElement
+                    const propertyCodeSelect = selectElement.closest('.import-mapping').querySelector('.property-code-select');
+
+                    // Загружаем опции свойств и вызываем addImportProperty после загрузки
+                    updatePropertyOptionsImport(iblockId, propertyCodeSelect, function () {
+                        addImportProperty(mappingIndex);
+                    });
+                } else {
+                    const selectsToUpdate = document.querySelectorAll('.import-section-select');
+                    selectsToUpdate.forEach(select => {
+                        select.innerHTML = html; // Обновляем все select, если selectElement не передан
+                    });
+                }
+            })
+            .catch(error => console.error('Error fetching import section options:', error));
+    }
+
+    function updatePropertyOptionsImport(iblockId, selectElement, callback = null) {
+        if (!iblockId || !selectElement) return;  // !!! Добавляем проверку на selectElement
+
+        fetch(`/local/modules/pragma.importmodule/lib/ajax.php?IBLOCK_ID=${iblockId}&PROPERTY=Y`)
+            .then(response => response.text())
+            .then(html => {
+                selectElement.innerHTML = html;
+                if (callback) {
+                    callback();
+                }
+            })
+            .catch(error => console.error('Error fetching import property options:', error));
+    }
+
+
     document.getElementById('resetButton').addEventListener('click', function (event) {
         event.preventDefault();
 
@@ -429,18 +803,29 @@ $APPLICATION->AddHeadScript('/local/modules/pragma.importmodule/lib/js/script.js
         document.getElementById('AUTO_MODE').checked = defaultOptions.AUTO_MODE;
         document.getElementById('DELAY_TIME').value = defaultOptions.DELAY_TIME;
         document.getElementById('AGENT_INTERVAL').value = <?= $agentInterval ?>; // Используем актуальные данные агента
-        document.getElementById('AGENT_NEXT_EXEC').value = '<?= date('Y - m - d\TH:i', strtotime($agentNextExec)) ?>'; // Используем актуальные данные агента
+        document.getElementById('AGENT_NEXT_EXEC').value = '<?= date('Y-m-d\TH:i', strtotime($agentNextExec)) ?>'; // Используем актуальные данные агента
 
         // Очищаем все сопоставления разделов
         const container = document.getElementById('section_mappings_container');
         container.innerHTML = '';
 
-        // Добавляем одно пустое сопоставление
+        // Очищаем все сопоставления импорта
+        const importContainer = document.getElementById('import_mappings_container');
+        importContainer.innerHTML = '';
+
+        // Добавляем одно пустое сопоставление для каждого контейнера
         addMapping();
+        addImportMapping();
 
         // Очищаем все списки разделов
-        const sectionSelects = document.querySelectorAll('.section-select');
+        const sectionSelects = document.querySelectorAll('.section-select, .import-section-select');
         sectionSelects.forEach(select => {
+            select.innerHTML = '<option value="">' + select.options[0].text + '</option>';
+        });
+
+        // Очищаем все списки свойств
+        const propertySelects = document.querySelectorAll('.property-select-import');
+        propertySelects.forEach(select => {
             select.innerHTML = '<option value="">' + select.options[0].text + '</option>';
         });
 
@@ -449,30 +834,13 @@ $APPLICATION->AddHeadScript('/local/modules/pragma.importmodule/lib/js/script.js
             updateSectionOptions(defaultOptions.IBLOCK_ID_CATALOG);
         }
 
+        // Если есть значение по умолчанию для IBLOCK_ID_IMPORT, загружаем разделы импорта
+        if (defaultOptions.IBLOCK_ID_IMPORT) {
+            updateImportSectionOptions(defaultOptions.IBLOCK_ID_IMPORT);
+            updatePropertyOptionsImport(defaultOptions.IBLOCK_ID_IMPORT); // Загружаем свойства импорта
+        }
+
         // Вызываем функцию для отображения/скрытия полей в зависимости от режима запуска
         toggleModeSettings();
     });
 </script>
-
-<template id="section-mapping-template">
-    <div class="section-mapping">
-        <div class="select-wrapper">
-            <select name="SECTION_MAPPINGS[{index}][SECTION_ID]" class="section-select">
-            </select>
-            <button type="button" onclick="removeMapping(this)">
-                <?= Loc::getMessage("PRAGMA_IMPORT_MODULE_REMOVE_MAPPING") ?>
-            </button>
-        </div>
-        <div class="properties-container">
-            <div class="property">
-                <input type="text" name="SECTION_MAPPINGS[{index}][PROPERTIES][]">
-                <button type="button" onclick="removeProperty(this)">
-                    <?= Loc::getMessage("PRAGMA_IMPORT_MODULE_REMOVE_PROPERTY") ?>
-                </button>
-            </div>
-        </div>
-        <button type="button" onclick="addProperty(this)">
-            <?= Loc::getMessage("PRAGMA_IMPORT_MODULE_ADD_PROPERTY") ?>
-        </button>
-    </div>
-</template>

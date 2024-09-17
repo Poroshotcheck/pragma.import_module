@@ -1,5 +1,17 @@
 /* Стили для кнопок */
-.section-mapping button {
+.section-mapping,
+.import-mapping {
+    padding: 10px;
+    margin-bottom: 10px;
+    border: 1px solid;
+    border-color: #c4ced2 #dce7ed #dce7ed;
+    box-shadow: 1px 1px 5px 1px #c4ced2;
+    background: linen;
+    border-radius: 3px;
+}
+
+.section-mapping button,
+.import-mapping button {
     background-color: #007bff;
     border: none;
     color: white;
@@ -31,44 +43,89 @@
     background-color: #218838;
 }
 
-.section-mapping .section-select {
+.section-mapping .section-select,
+.import-mapping .import-section-select {
     max-width: 400px;
     width: 100%;
 }
 
-.section-mapping button:hover {
+.section-mapping button:hover,
+.import-mapping button:hover {
     background-color: #0056b3;
 }
 
-/* Стили для кнопки "Удалить" (крестик) */
-.section-mapping button[onclick="removeProperty(this)"] {
+/* Стили для кнопки "Удалить" */
+.section-mapping button[onclick="removeProperty(this)"],
+.section-mapping button[onclick="removeMapping(this)"],
+.import-mapping button[onclick="removeImportMapping(this)"],
+.import-mapping button[onclick="removeImportProperty(this)"] {
     background-color: #dc3545;
 }
 
-.section-mapping button[onclick="removeProperty(this)"]:hover {
+.section-mapping button[onclick="removeProperty(this)"]:hover,
+.section-mapping button[onclick="removeMapping(this)"]:hover,
+.import-mapping button[onclick="removeImportMapping(this)"]:hover,
+.import-mapping button[onclick="removeImportProperty(this)"]:hover {
     background-color: #c82333;
 }
 
 #section_mappings_container button[onclick^="add"],
+#import_mappings_container button[onclick^="add"],
 form button[onclick^="add"] {
-    background-color: #28a745; 
+    background-color: #28a745;
 }
 
 #section_mappings_container button[onclick^="add"]:hover,
+#import_mappings_container button[onclick^="add"]:hover,
 form button[onclick^="add"]:hover {
     background-color: #218838;
 }
 
 /* Стили для select-wrapper */
-.select-wrapper {
-  display: flex;
-  align-items: center; 
+.select-wrapper,
+.import-mapping .select-wrapper {
+    display: flex;
+    align-items: center;
 }
 
-.select-wrapper .section-select {
-  flex-grow: 1; 
+.select-wrapper .section-select,
+.import-mapping .select-wrapper .import-section-select {
+    flex-grow: 1;
 }
 
-.select-wrapper button {
-  margin-left: 10px; 
+.select-wrapper button,
+.import-mapping .select-wrapper button {
+    margin-left: 10px;
+}
+
+/* Стили для контейнера количества совпадений */
+.import-mapping .total-matches-container {
+    margin-top: 10px;
+    display: flex;
+    align-items: center;
+}
+
+.import-mapping .total-matches-container label {
+    margin-right: 5px;
+}
+
+.import-mapping .total-matches-container select {
+    width: 50px;
+}
+
+/* Стили для контейнера свойств */
+.import-mapping .import-properties-container {
+    margin-top: 10px;
+}
+
+.import-mapping .import-property {
+    display: flex;
+    align-items: center;
+    margin-bottom: 5px;
+}
+
+.import-mapping .import-property select {
+    margin-right: 5px;
+    width: 200px;
+    /* Или другой подходящий размер */
 }
