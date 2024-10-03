@@ -7,16 +7,21 @@ use Bitrix\Iblock\PropertyTable;
 use Bitrix\Iblock\PropertyEnumerationTable;
 use Bitrix\Main\Application;
 use Pragma\ImportModule\Logger;
+use CCatalogSKU;
 
 Loader::includeModule('iblock');
+Loader::includeModule('catalog');
 
 class IblockPropertiesCopier
 {
     private $sourceIblockId;
     private $destinationIblockId;
+    private $destinationOffersIblockId;
     private $sourceProperties;
     private $destinationProperties;
     private $destinationPropertiesByCode;
+    private $destinationOffersProperties;
+    private $destinationOffersPropertiesByCode;
     private $connection;
 
     public function __construct($sourceIblockId, $destinationIblockId)
@@ -26,9 +31,17 @@ class IblockPropertiesCopier
         $this->sourceProperties = [];
         $this->destinationProperties = [];
         $this->destinationPropertiesByCode = [];
+        $this->destinationOffersProperties = [];
+        $this->destinationOffersPropertiesByCode = [];
         $this->connection = Application::getConnection();
-        
-        Logger::log("IblockPropertiesCopier создан. Источник: {$sourceIblockId}, Назначение: {$destinationIblockId}");
+
+        // Получаем ID инфоблока торговых предложений, если он существует
+        $offersCatalog = CCatalogSKU::GetInfoByProductIBlock($destinationIblockId);
+        if ($offersCatalog && isset($offersCatalog['IBLOCK_ID'])) {
+            $this->destinationOffersIblockId = $offersCatalog['IBLOCK_ID'];
+        }
+
+        Logger::log("IblockPropertiesCopier создан. Источник: {$sourceIblockId}, Назначение: {$destinationIblockId}, ТП: " . ($this->destinationOffersIblockId ? $this->destinationOffersIblockId : "нет"));
     }
 
     public function copyProperties()
@@ -42,19 +55,22 @@ class IblockPropertiesCopier
     private function loadProperties()
     {
         Logger::log("Начало loadProperties()");
-        // Используем API Bitrix D7 для загрузки свойств
+
+        // Загружаем свойства исходного инфоблока
         $this->sourceProperties = PropertyTable::getList([
             'filter' => ['IBLOCK_ID' => $this->sourceIblockId],
             'order' => ['SORT' => 'ASC', 'NAME' => 'ASC']
         ])->fetchAll();
         Logger::log("Загружено " . count($this->sourceProperties) . " свойств источника");
 
+        // Загружаем свойства целевого инфоблока
         $destinationProperties = PropertyTable::getList([
             'filter' => ['IBLOCK_ID' => $this->destinationIblockId],
-            'select' => ['ID', 'CODE', 'XML_ID']
+            'select' => ['ID', 'CODE', 'XML_ID', 'PROPERTY_TYPE', 'MULTIPLE']
         ])->fetchAll();
         Logger::log("Загружено " . count($destinationProperties) . " свойств назначения");
 
+        // Создаем массивы для быстрого доступа к свойствам целевого инфоблока по XML_ID и коду
         foreach ($destinationProperties as $property) {
             if ($property['XML_ID']) {
                 $this->destinationProperties[$property['XML_ID']] = $property;
@@ -62,7 +78,23 @@ class IblockPropertiesCopier
             $this->destinationPropertiesByCode[$property['CODE']][] = $property;
         }
 
-        // Загружаем значения списков для свойств типа "Список"
+        // Загружаем свойства инфоблока торговых предложений, если он существует
+        if ($this->destinationOffersIblockId) {
+            $destinationOffersProperties = PropertyTable::getList([
+                'filter' => ['IBLOCK_ID' => $this->destinationOffersIblockId],
+                'select' => ['ID', 'CODE', 'XML_ID', 'PROPERTY_TYPE', 'MULTIPLE']
+            ])->fetchAll();
+            Logger::log("Загружено " . count($destinationOffersProperties) . " свойств назначения ТП");
+
+            foreach ($destinationOffersProperties as $property) {
+                if ($property['XML_ID']) {
+                    $this->destinationOffersProperties[$property['XML_ID']] = $property;
+                }
+                $this->destinationOffersPropertiesByCode[$property['CODE']][] = $property;
+            }
+        }
+
+        // Загружаем значения списков для свойств типа "Список" в исходном инфоблоке
         foreach ($this->sourceProperties as &$property) {
             if ($property['PROPERTY_TYPE'] == 'L') {
                 $property['ENUM_VALUES'] = $this->getEnumValues($property['ID']);
@@ -82,16 +114,86 @@ class IblockPropertiesCopier
         try {
             foreach ($this->sourceProperties as $sourceProperty) {
                 Logger::log("Обработка свойства: {$sourceProperty['CODE']}");
-                $destinationProperty = $this->findDestinationProperty($sourceProperty);
 
-                if ($destinationProperty) {
-                    $this->updateProperty($sourceProperty, $destinationProperty);
-                } else {
-                    $destinationProperty = $this->createProperty($sourceProperty);
+                // 1. Поиск свойства в целевом инфоблоке по XML_ID
+                if ($sourceProperty['XML_ID'] && isset($this->destinationProperties[$sourceProperty['XML_ID']])) {
+                    $destinationProperty = $this->destinationProperties[$sourceProperty['XML_ID']];
+
+                    // Сравнение типов свойств
+                    if ($destinationProperty['PROPERTY_TYPE'] == $sourceProperty['PROPERTY_TYPE']) {
+                        $this->updateProperty($sourceProperty, $destinationProperty);
+                        Logger::log("Свойство {$sourceProperty['CODE']} (XML_ID: {$sourceProperty['XML_ID']}) обновлено.");
+                    } else {
+                        Logger::log("Свойство {$sourceProperty['CODE']} (XML_ID: {$sourceProperty['XML_ID']}) пропущено: типы свойств не совпадают.");
+                    }
+                }
+                // 2. Поиск свойства в целевом инфоблоке по коду, если не найдено по XML_ID
+                else if (isset($this->destinationPropertiesByCode[$sourceProperty['CODE']])) {
+                    $properties = $this->destinationPropertiesByCode[$sourceProperty['CODE']];
+
+                    foreach ($properties as $property) {
+                        // Сравнение типов свойств
+                        if ($property['PROPERTY_TYPE'] == $sourceProperty['PROPERTY_TYPE']) {
+                            $this->updateProperty($sourceProperty, $property);
+                            Logger::log("Свойство {$sourceProperty['CODE']} (CODE: {$sourceProperty['CODE']}) обновлено.");
+                            break; // Выходим из цикла после обновления
+                        }
+                    }
+
+                    if (!$property) { // Если ни одно свойство с совпадающим типом не найдено
+                        Logger::log("Свойство {$sourceProperty['CODE']} (CODE: {$sourceProperty['CODE']}) пропущено: типы свойств не совпадают.");
+                    }
+                }
+                // 3. Если свойство не найдено ни по XML_ID, ни по коду в целевом инфоблоке, создаем новое
+                else {
+                    $destinationProperty = $this->createProperty($sourceProperty, $this->destinationIblockId);
+                    Logger::log("Свойство {$sourceProperty['CODE']} создано.");
+
+                    if ($sourceProperty['PROPERTY_TYPE'] == 'L' && $destinationProperty) {
+                        $this->processEnumValues($sourceProperty, $destinationProperty['ID']);
+                    }
                 }
 
-                if ($sourceProperty['PROPERTY_TYPE'] == 'L' && $destinationProperty) {
-                    $this->processEnumValues($sourceProperty, $destinationProperty['ID']);
+                // Обработка для инфоблока торговых предложений, если он существует
+                if ($this->destinationOffersIblockId) {
+                    // 1. Поиск свойства в инфоблоке ТП по XML_ID
+                    if ($sourceProperty['XML_ID'] && isset($this->destinationOffersProperties[$sourceProperty['XML_ID']])) {
+                        $destinationOffersProperty = $this->destinationOffersProperties[$sourceProperty['XML_ID']];
+
+                        // Сравнение типов свойств
+                        if ($destinationOffersProperty['PROPERTY_TYPE'] == $sourceProperty['PROPERTY_TYPE']) {
+                            $this->updateProperty($sourceProperty, $destinationOffersProperty);
+                            Logger::log("Свойство {$sourceProperty['CODE']} (XML_ID: {$sourceProperty['XML_ID']}) обновлено в ТП.");
+                        } else {
+                            Logger::log("Свойство {$sourceProperty['CODE']} (XML_ID: {$sourceProperty['XML_ID']}) пропущено в ТП: типы свойств не совпадают.");
+                        }
+                    }
+                    // 2. Поиск свойства в инфоблоке ТП по коду, если не найдено по XML_ID
+                    else if (isset($this->destinationOffersPropertiesByCode[$sourceProperty['CODE']])) {
+                        $properties = $this->destinationOffersPropertiesByCode[$sourceProperty['CODE']];
+
+                        foreach ($properties as $property) {
+                            // Сравнение типов свойств
+                            if ($property['PROPERTY_TYPE'] == $sourceProperty['PROPERTY_TYPE']) {
+                                $this->updateProperty($sourceProperty, $property);
+                                Logger::log("Свойство {$sourceProperty['CODE']} (CODE: {$sourceProperty['CODE']}) обновлено в ТП.");
+                                break; // Выходим из цикла после обновления
+                            }
+                        }
+
+                        if (!$property) { // Если ни одно свойство с совпадающим типом не найдено
+                            Logger::log("Свойство {$sourceProperty['CODE']} (CODE: {$sourceProperty['CODE']}) пропущено в ТП: типы свойств не совпадают.");
+                        }
+                    }
+                    // 3. Если свойство не найдено ни по XML_ID, ни по коду в инфоблоке ТП, создаем новое
+                    else {
+                        $destinationOffersProperty = $this->createProperty($sourceProperty, $this->destinationOffersIblockId);
+                        Logger::log("Свойство {$sourceProperty['CODE']} создано в ТП.");
+
+                        if ($sourceProperty['PROPERTY_TYPE'] == 'L' && $destinationOffersProperty) {
+                            $this->processEnumValues($sourceProperty, $destinationOffersProperty['ID']);
+                        }
+                    }
                 }
             }
 
@@ -106,15 +208,22 @@ class IblockPropertiesCopier
         Logger::log("Завершение processProperties()");
     }
 
-    private function findDestinationProperty($sourceProperty)
+
+    private function findDestinationProperty($sourceProperty, $destinationPropertiesByCode)
     {
-        if ($sourceProperty['XML_ID'] && isset($this->destinationProperties[$sourceProperty['XML_ID']])) {
-            return $this->destinationProperties[$sourceProperty['XML_ID']];
+        if ($sourceProperty['XML_ID'] && isset($destinationPropertiesByCode[$sourceProperty['XML_ID']])) {
+            return $destinationPropertiesByCode[$sourceProperty['XML_ID']];
         }
 
-        if (isset($this->destinationPropertiesByCode[$sourceProperty['CODE']])) {
-            $properties = $this->destinationPropertiesByCode[$sourceProperty['CODE']];
-            return $properties[0] ?? null;
+        if (isset($destinationPropertiesByCode[$sourceProperty['CODE']])) {
+            $properties = $destinationPropertiesByCode[$sourceProperty['CODE']];
+            foreach ($properties as $property) {
+                // Добавьте проверку на другие атрибуты, чтобы выбрать правильное свойство
+                if ($property['PROPERTY_TYPE'] == $sourceProperty['PROPERTY_TYPE'] &&
+                    $property['MULTIPLE'] == $sourceProperty['MULTIPLE']) {
+                    return $property;
+                }
+            }
         }
 
         return null;
@@ -126,19 +235,29 @@ class IblockPropertiesCopier
         PropertyTable::update($destinationProperty['ID'], $updateFields);
     }
 
-    private function createProperty($sourceProperty)
+    private function createProperty($sourceProperty, $iblockId)
     {
-        $newFields = $this->preparePropertyFields($sourceProperty);
-        $newFields['IBLOCK_ID'] = $this->destinationIblockId;
-        $newFields['XML_ID'] = $this->generateUniqueXmlId($sourceProperty['CODE']);
+        // Проверяем, существует ли уже свойство с таким XML_ID в целевом инфоблоке
+        $existingProperty = PropertyTable::getList([
+            'filter' => ['IBLOCK_ID' => $iblockId, 'XML_ID' => $sourceProperty['XML_ID']]
+        ])->fetch();
 
-        $result = PropertyTable::add($newFields);
-        return ['ID' => $result->getId(), 'XML_ID' => $newFields['XML_ID']];
+        if ($existingProperty) {
+            Logger::log("Свойство {$sourceProperty['CODE']} (XML_ID: {$sourceProperty['XML_ID']}) уже существует в целевом инфоблоке.");
+            return ['ID' => $existingProperty['ID'], 'XML_ID' => $sourceProperty['XML_ID']];
+        } else {
+            // Создаем новое свойство с исходным XML_ID
+            $newFields = $this->preparePropertyFields($sourceProperty);
+            $newFields['IBLOCK_ID'] = $iblockId;
+
+            $result = PropertyTable::add($newFields);
+            return ['ID' => $result->getId(), 'XML_ID' => $sourceProperty['XML_ID']];
+        }
     }
 
-    private function generateUniqueXmlId($baseCode)
+    private function generateUniqueXmlId($baseCode, $iblockId)
     {
-        return $baseCode . '_' . uniqid();
+        return $baseCode . '_' . $iblockId . '_' . uniqid();
     }
 
     private function preparePropertyFields($property)

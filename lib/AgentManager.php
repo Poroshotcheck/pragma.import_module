@@ -7,19 +7,13 @@ use Bitrix\Main\Config\Option;
 
 class AgentManager
 {
-    private $moduleId;
-
-    public function __construct($moduleId)
-    {
-        $this->moduleId = $moduleId;
-    }
-
+    private static $moduleId = PRAGMA_IMPORT_MODULE_ID;
     public function createAgent($agentClass, $interval, $nextExec, $active = false)
     {
         $agentName = $this->getAgentName($agentClass);
         $agentId = \CAgent::AddAgent(
             "\\" . $agentClass . "::run();",
-            $this->moduleId,
+            self::$moduleId,
             "N",
             $interval,
             "",
@@ -29,7 +23,7 @@ class AgentManager
         );
 
         if ($agentId) {
-            Option::set($this->moduleId, $agentName . "_ID", $agentId);
+            Option::set(self::$moduleId, $agentName . "_ID", $agentId);
             if (!$active) {
                 $this->deactivateAgent($agentId);
             }
@@ -56,7 +50,7 @@ class AgentManager
     {
         if (\CAgent::Delete($agentId)) {
             $agentName = $this->getAgentNameById($agentId);
-            Option::delete($this->moduleId, array("name" => $agentName . "_ID"));
+            Option::delete(self::$moduleId, array("name" => $agentName . "_ID"));
             Logger::log("Агент " . $agentName . " (ID: " . $agentId . ") удален");
             return true;
         } else {
@@ -94,7 +88,7 @@ class AgentManager
 
     public function getAgentIdByName($agentName)
     {
-        return Option::get($this->moduleId, $agentName . "_ID", 0);
+        return Option::get(self::$moduleId, $agentName . "_ID", 0);
     }
 
     private function getAgentName($agentClass)

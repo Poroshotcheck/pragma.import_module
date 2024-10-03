@@ -67,12 +67,17 @@ class SectionHelper
         foreach ($sections as $section) {
             $selected = ($section['ID'] == $selectedId) ? 'selected' : '';
             $result .= '<option value="' . $section['ID'] . '" ' . $selected . '>'
-                . str_repeat("   ", $level) . htmlspecialcharsbx($section['NAME'])
+                . str_repeat("   ", $level) . htmlspecialcharsbx($section['NAME']) . " [ID =" . $section['ID'] . "]"
                 . '</option>';
             if (isset($section['CHILDREN']) && is_array($section['CHILDREN'])) {
                 $result .= self::buildSectionOptions($section['CHILDREN'], $selectedId, $level + 1);
             }
         }
         return $result;
+    }
+    public static function getSectionNameById($sectionId)
+    {
+        $section = \Bitrix\Iblock\SectionTable::getRowById($sectionId);
+        return $section ? $section['NAME'] : '';
     }
 }
