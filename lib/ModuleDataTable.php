@@ -38,6 +38,8 @@ class ModuleDataTable extends DataManager // Изменено
             new IntegerField('ELEMENT_ID'),
             new StringField('ELEMENT_NAME', ['size' => 255]),
             new StringField('ELEMENT_XML_ID', ['size' => 255]),
+            new StringField('SIZE_VALUE_ID', ['size' => 255]),
+            new StringField('COLOR_VALUE_ID', ['size' => 255]),
             new StringField('CHAIN_TOGEZER', [
                 'size' => 255,
                 'default_value' => ''

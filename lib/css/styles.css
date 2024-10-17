@@ -85,7 +85,8 @@ form button[onclick^="add"]:hover {
 .select-wrapper,
 .import-mapping .select-wrapper {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
+    flex-direction: column-reverse;
 }
 
 .select-wrapper .section-select,
@@ -128,4 +129,9 @@ form button[onclick^="add"]:hover {
     margin-right: 5px;
     width: 200px;
     /* Или другой подходящий размер */
+}
+
+.search-input {
+    max-width: 396px;
+    width: 100%;
 }

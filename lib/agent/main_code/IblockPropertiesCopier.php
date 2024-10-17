@@ -3,50 +3,37 @@
 namespace Pragma\ImportModule\Agent\MainCode;
 
 use Bitrix\Main\Loader;
-use Bitrix\Iblock\PropertyTable;
-use Bitrix\Iblock\PropertyEnumerationTable;
-use Bitrix\Main\Application;
+use Bitrix\Highloadblock\HighloadBlockTable;
 use Pragma\ImportModule\Logger;
-use CCatalogSKU;
 
 Loader::includeModule('iblock');
-Loader::includeModule('catalog');
+Loader::includeModule('highloadblock');
 
 class IblockPropertiesCopier
 {
+    private $moduleId;
     private $sourceIblockId;
     private $destinationIblockId;
     private $destinationOffersIblockId;
-    private $sourceProperties;
-    private $destinationProperties;
-    private $destinationPropertiesByCode;
-    private $destinationOffersProperties;
-    private $destinationOffersPropertiesByCode;
-    private $connection;
+    private $properties = [];
+    private $colorHlbId;
+    private $sizeHlbId;
 
-    public function __construct($sourceIblockId, $destinationIblockId)
+    public function __construct($moduleId, $sourceIblockId, $destinationIblockId, $destinationOffersIblockId)
     {
+        $this->moduleId = $moduleId;
         $this->sourceIblockId = $sourceIblockId;
         $this->destinationIblockId = $destinationIblockId;
-        $this->sourceProperties = [];
-        $this->destinationProperties = [];
-        $this->destinationPropertiesByCode = [];
-        $this->destinationOffersProperties = [];
-        $this->destinationOffersPropertiesByCode = [];
-        $this->connection = Application::getConnection();
-
-        // Получаем ID инфоблока торговых предложений, если он существует
-        $offersCatalog = CCatalogSKU::GetInfoByProductIBlock($destinationIblockId);
-        if ($offersCatalog && isset($offersCatalog['IBLOCK_ID'])) {
-            $this->destinationOffersIblockId = $offersCatalog['IBLOCK_ID'];
-        }
-
-        Logger::log("IblockPropertiesCopier создан. Источник: {$sourceIblockId}, Назначение: {$destinationIblockId}, ТП: " . ($this->destinationOffersIblockId ? $this->destinationOffersIblockId : "нет"));
+        $this->destinationOffersIblockId = $destinationOffersIblockId;
+        $this->colorHlbId = \COption::GetOptionString($this->moduleId, 'COLOR_HLB_ID');
+        $this->sizeHlbId = \COption::GetOptionString($this->moduleId, 'SIZE_HLB_ID');
     }
 
     public function copyProperties()
     {
         Logger::log("Начало copyProperties()");
+        $this->ensureDirectoryProperty('COLOR_MODULE_REF', 'Цвета для товаров', $this->colorHlbId);
+        $this->ensureDirectoryProperty('SIZE_MODULE_REF', 'Размеры для товаров', $this->sizeHlbId);
         $this->loadProperties();
         $this->processProperties();
         Logger::log("Завершение copyProperties()");
@@ -54,308 +41,296 @@ class IblockPropertiesCopier
 
     private function loadProperties()
     {
-        Logger::log("Начало loadProperties()");
+        $properties = \CIBlockProperty::GetList(
+            ['sort' => 'asc', 'name' => 'asc'],
+            ['ACTIVE' => 'Y', 'IBLOCK_ID' => $this->sourceIblockId]
+        );
 
-        // Загружаем свойства исходного инфоблока
-        $this->sourceProperties = PropertyTable::getList([
-            'filter' => ['IBLOCK_ID' => $this->sourceIblockId],
-            'order' => ['SORT' => 'ASC', 'NAME' => 'ASC']
-        ])->fetchAll();
-        Logger::log("Загружено " . count($this->sourceProperties) . " свойств источника");
-
-        // Загружаем свойства целевого инфоблока
-        $destinationProperties = PropertyTable::getList([
-            'filter' => ['IBLOCK_ID' => $this->destinationIblockId],
-            'select' => ['ID', 'CODE', 'XML_ID', 'PROPERTY_TYPE', 'MULTIPLE']
-        ])->fetchAll();
-        Logger::log("Загружено " . count($destinationProperties) . " свойств назначения");
-
-        // Создаем массивы для быстрого доступа к свойствам целевого инфоблока по XML_ID и коду
-        foreach ($destinationProperties as $property) {
-            if ($property['XML_ID']) {
-                $this->destinationProperties[$property['XML_ID']] = $property;
-            }
-            $this->destinationPropertiesByCode[$property['CODE']][] = $property;
+        while ($prop = $properties->GetNext()) {
+            $this->properties[] = $prop;
         }
-
-        // Загружаем свойства инфоблока торговых предложений, если он существует
-        if ($this->destinationOffersIblockId) {
-            $destinationOffersProperties = PropertyTable::getList([
-                'filter' => ['IBLOCK_ID' => $this->destinationOffersIblockId],
-                'select' => ['ID', 'CODE', 'XML_ID', 'PROPERTY_TYPE', 'MULTIPLE']
-            ])->fetchAll();
-            Logger::log("Загружено " . count($destinationOffersProperties) . " свойств назначения ТП");
-
-            foreach ($destinationOffersProperties as $property) {
-                if ($property['XML_ID']) {
-                    $this->destinationOffersProperties[$property['XML_ID']] = $property;
-                }
-                $this->destinationOffersPropertiesByCode[$property['CODE']][] = $property;
-            }
-        }
-
-        // Загружаем значения списков для свойств типа "Список" в исходном инфоблоке
-        foreach ($this->sourceProperties as &$property) {
-            if ($property['PROPERTY_TYPE'] == 'L') {
-                $property['ENUM_VALUES'] = $this->getEnumValues($property['ID']);
-                Logger::log("Загружено " . count($property['ENUM_VALUES']) . " значений списка для свойства {$property['CODE']}");
-            }
-        }
-        unset($property); // Очищаем ссылку
-
-        Logger::log("Завершение loadProperties()");
     }
 
     private function processProperties()
     {
-        Logger::log("Начало processProperties()");
-        $this->connection->startTransaction();
+        foreach ($this->properties as $property) {
+            $this->copyProperty($property);
+        }
+    }
+
+    private function copyProperty($property)
+    {
+        Logger::log("Обработка свойства: {$property['CODE']}");
+
+        $propertyFields = [
+            'NAME' => $property['NAME'],
+            'ACTIVE' => $property['ACTIVE'],
+            'SORT' => $property['SORT'],
+            'CODE' => $property['CODE'],
+            'DEFAULT_VALUE' => $property['DEFAULT_VALUE'],
+            'PROPERTY_TYPE' => $property['PROPERTY_TYPE'],
+            'ROW_COUNT' => $property['ROW_COUNT'],
+            'COL_COUNT' => $property['COL_COUNT'],
+            'LIST_TYPE' => $property['LIST_TYPE'],
+            'MULTIPLE' => $property['MULTIPLE'],
+            'XML_ID' => $property['XML_ID'],
+            'FILE_TYPE' => $property['FILE_TYPE'],
+            'MULTIPLE_CNT' => $property['MULTIPLE_CNT'],
+            'TMP_ID' => $property['TMP_ID'],
+            'LINK_IBLOCK_ID' => $property['LINK_IBLOCK_ID'],
+            'WITH_DESCRIPTION' => $property['WITH_DESCRIPTION'],
+            'SEARCHABLE' => $property['SEARCHABLE'],
+            'FILTRABLE' => $property['FILTRABLE'],
+            'IS_REQUIRED' => $property['IS_REQUIRED'],
+            'VERSION' => $property['VERSION'],
+            'USER_TYPE' => $property['USER_TYPE'],
+            'USER_TYPE_SETTINGS' => $property['USER_TYPE_SETTINGS'],
+            'HINT' => $property['HINT'],
+        ];
+
+        $destIblockProperty = new \CIBlockProperty;
+
+        // Функция для поиска существующего свойства
+        $findExistingProperty = function($iblockId) use ($property) {
+            $existingProperty = null;
+
+            // Поиск по XML_ID, если оно не пустое
+            if (!empty($property['XML_ID'])) {
+                $existingProperty = \CIBlockProperty::GetList([], [
+                    'IBLOCK_ID' => $iblockId,
+                    'XML_ID' => $property['XML_ID']
+                ])->Fetch();
+            }
+
+            // Если не найдено по XML_ID, ищем по CODE
+            if (!$existingProperty) {
+                $existingProperty = \CIBlockProperty::GetList([], [
+                    'IBLOCK_ID' => $iblockId,
+                    'CODE' => $property['CODE']
+                ])->Fetch();
+            }
+
+            return $existingProperty;
+        };
 
         try {
-            foreach ($this->sourceProperties as $sourceProperty) {
-                Logger::log("Обработка свойства: {$sourceProperty['CODE']}");
-
-                // 1. Поиск свойства в целевом инфоблоке по XML_ID
-                if ($sourceProperty['XML_ID'] && isset($this->destinationProperties[$sourceProperty['XML_ID']])) {
-                    $destinationProperty = $this->destinationProperties[$sourceProperty['XML_ID']];
-
-                    // Сравнение типов свойств
-                    if ($destinationProperty['PROPERTY_TYPE'] == $sourceProperty['PROPERTY_TYPE']) {
-                        $this->updateProperty($sourceProperty, $destinationProperty);
-                        Logger::log("Свойство {$sourceProperty['CODE']} (XML_ID: {$sourceProperty['XML_ID']}) обновлено.");
-                    } else {
-                        Logger::log("Свойство {$sourceProperty['CODE']} (XML_ID: {$sourceProperty['XML_ID']}) пропущено: типы свойств не совпадают.");
-                    }
+            // Обработка для основного инфоблока
+            $existingProperty = $findExistingProperty($this->destinationIblockId);
+            if ($existingProperty) {
+                Logger::log("Свойство {$property['CODE']} (XML_ID: {$property['XML_ID']}) уже существует в целевом инфоблоке.");
+                $propertyId = $existingProperty['ID'];
+                // Подготовка полей для обновления
+                $updateFields = array_merge($propertyFields, ['IBLOCK_ID' => $this->destinationIblockId]);
+                // Попытка обновления свойства
+                if ($destIblockProperty->Update($propertyId, $updateFields)) {
+                    Logger::log("Свойство {$property['CODE']} обновлено.");
+                } else {
+                    throw new \Exception("Ошибка при обновлении свойства {$property['CODE']}: " . $destIblockProperty->LAST_ERROR);
                 }
-                // 2. Поиск свойства в целевом инфоблоке по коду, если не найдено по XML_ID
-                else if (isset($this->destinationPropertiesByCode[$sourceProperty['CODE']])) {
-                    $properties = $this->destinationPropertiesByCode[$sourceProperty['CODE']];
-
-                    foreach ($properties as $property) {
-                        // Сравнение типов свойств
-                        if ($property['PROPERTY_TYPE'] == $sourceProperty['PROPERTY_TYPE']) {
-                            $this->updateProperty($sourceProperty, $property);
-                            Logger::log("Свойство {$sourceProperty['CODE']} (CODE: {$sourceProperty['CODE']}) обновлено.");
-                            break; // Выходим из цикла после обновления
-                        }
-                    }
-
-                    if (!$property) { // Если ни одно свойство с совпадающим типом не найдено
-                        Logger::log("Свойство {$sourceProperty['CODE']} (CODE: {$sourceProperty['CODE']}) пропущено: типы свойств не совпадают.");
-                    }
-                }
-                // 3. Если свойство не найдено ни по XML_ID, ни по коду в целевом инфоблоке, создаем новое
-                else {
-                    $destinationProperty = $this->createProperty($sourceProperty, $this->destinationIblockId);
-                    Logger::log("Свойство {$sourceProperty['CODE']} создано.");
-
-                    if ($sourceProperty['PROPERTY_TYPE'] == 'L' && $destinationProperty) {
-                        $this->processEnumValues($sourceProperty, $destinationProperty['ID']);
-                    }
-                }
-
-                // Обработка для инфоблока торговых предложений, если он существует
-                if ($this->destinationOffersIblockId) {
-                    // 1. Поиск свойства в инфоблоке ТП по XML_ID
-                    if ($sourceProperty['XML_ID'] && isset($this->destinationOffersProperties[$sourceProperty['XML_ID']])) {
-                        $destinationOffersProperty = $this->destinationOffersProperties[$sourceProperty['XML_ID']];
-
-                        // Сравнение типов свойств
-                        if ($destinationOffersProperty['PROPERTY_TYPE'] == $sourceProperty['PROPERTY_TYPE']) {
-                            $this->updateProperty($sourceProperty, $destinationOffersProperty);
-                            Logger::log("Свойство {$sourceProperty['CODE']} (XML_ID: {$sourceProperty['XML_ID']}) обновлено в ТП.");
-                        } else {
-                            Logger::log("Свойство {$sourceProperty['CODE']} (XML_ID: {$sourceProperty['XML_ID']}) пропущено в ТП: типы свойств не совпадают.");
-                        }
-                    }
-                    // 2. Поиск свойства в инфоблоке ТП по коду, если не найдено по XML_ID
-                    else if (isset($this->destinationOffersPropertiesByCode[$sourceProperty['CODE']])) {
-                        $properties = $this->destinationOffersPropertiesByCode[$sourceProperty['CODE']];
-
-                        foreach ($properties as $property) {
-                            // Сравнение типов свойств
-                            if ($property['PROPERTY_TYPE'] == $sourceProperty['PROPERTY_TYPE']) {
-                                $this->updateProperty($sourceProperty, $property);
-                                Logger::log("Свойство {$sourceProperty['CODE']} (CODE: {$sourceProperty['CODE']}) обновлено в ТП.");
-                                break; // Выходим из цикла после обновления
-                            }
-                        }
-
-                        if (!$property) { // Если ни одно свойство с совпадающим типом не найдено
-                            Logger::log("Свойство {$sourceProperty['CODE']} (CODE: {$sourceProperty['CODE']}) пропущено в ТП: типы свойств не совпадают.");
-                        }
-                    }
-                    // 3. Если свойство не найдено ни по XML_ID, ни по коду в инфоблоке ТП, создаем новое
-                    else {
-                        $destinationOffersProperty = $this->createProperty($sourceProperty, $this->destinationOffersIblockId);
-                        Logger::log("Свойство {$sourceProperty['CODE']} создано в ТП.");
-
-                        if ($sourceProperty['PROPERTY_TYPE'] == 'L' && $destinationOffersProperty) {
-                            $this->processEnumValues($sourceProperty, $destinationOffersProperty['ID']);
-                        }
-                    }
-                }
-            }
-
-            $this->connection->commitTransaction();
-            Logger::log("Транзакция успешно завершена");
-        } catch (\Exception $e) {
-            $this->connection->rollbackTransaction();
-            Logger::log("Ошибка при обработке свойств: " . $e->getMessage());
-            throw $e;
-        }
-
-        Logger::log("Завершение processProperties()");
-    }
-
-
-    private function findDestinationProperty($sourceProperty, $destinationPropertiesByCode)
-    {
-        if ($sourceProperty['XML_ID'] && isset($destinationPropertiesByCode[$sourceProperty['XML_ID']])) {
-            return $destinationPropertiesByCode[$sourceProperty['XML_ID']];
-        }
-
-        if (isset($destinationPropertiesByCode[$sourceProperty['CODE']])) {
-            $properties = $destinationPropertiesByCode[$sourceProperty['CODE']];
-            foreach ($properties as $property) {
-                // Добавьте проверку на другие атрибуты, чтобы выбрать правильное свойство
-                if ($property['PROPERTY_TYPE'] == $sourceProperty['PROPERTY_TYPE'] &&
-                    $property['MULTIPLE'] == $sourceProperty['MULTIPLE']) {
-                    return $property;
-                }
-            }
-        }
-
-        return null;
-    }
-
-    private function updateProperty($sourceProperty, $destinationProperty)
-    {
-        $updateFields = $this->preparePropertyFields($sourceProperty);
-        PropertyTable::update($destinationProperty['ID'], $updateFields);
-    }
-
-    private function createProperty($sourceProperty, $iblockId)
-    {
-        // Проверяем, существует ли уже свойство с таким XML_ID в целевом инфоблоке
-        $existingProperty = PropertyTable::getList([
-            'filter' => ['IBLOCK_ID' => $iblockId, 'XML_ID' => $sourceProperty['XML_ID']]
-        ])->fetch();
-
-        if ($existingProperty) {
-            Logger::log("Свойство {$sourceProperty['CODE']} (XML_ID: {$sourceProperty['XML_ID']}) уже существует в целевом инфоблоке.");
-            return ['ID' => $existingProperty['ID'], 'XML_ID' => $sourceProperty['XML_ID']];
-        } else {
-            // Создаем новое свойство с исходным XML_ID
-            $newFields = $this->preparePropertyFields($sourceProperty);
-            $newFields['IBLOCK_ID'] = $iblockId;
-
-            $result = PropertyTable::add($newFields);
-            return ['ID' => $result->getId(), 'XML_ID' => $sourceProperty['XML_ID']];
-        }
-    }
-
-    private function generateUniqueXmlId($baseCode, $iblockId)
-    {
-        return $baseCode . '_' . $iblockId . '_' . uniqid();
-    }
-
-    private function preparePropertyFields($property)
-    {
-        $allowedKeys = [
-            "NAME",
-            "ACTIVE",
-            "SORT",
-            "CODE",
-            "DEFAULT_VALUE",
-            "PROPERTY_TYPE",
-            "ROW_COUNT",
-            "COL_COUNT",
-            "LIST_TYPE",
-            "MULTIPLE",
-            "XML_ID",
-            "FILE_TYPE",
-            "MULTIPLE_CNT",
-            "LINK_IBLOCK_ID",
-            "WITH_DESCRIPTION",
-            "SEARCHABLE",
-            "FILTRABLE",
-            "IS_REQUIRED",
-            "USER_TYPE",
-            "USER_TYPE_SETTINGS",
-            "HINT",
-            "SMART_FILTER"
-        ];
-        return array_intersect_key($property, array_flip($allowedKeys));
-    }
-
-    private function getEnumValues($propertyId)
-    {
-        return PropertyEnumerationTable::getList([
-            'filter' => ['PROPERTY_ID' => $propertyId],
-            'order' => ['DEF' => 'DESC', 'SORT' => 'ASC']
-        ])->fetchAll();
-    }
-
-    private function processEnumValues($sourceProperty, $destinationPropertyId)
-    {
-        $existingEnumValues = PropertyEnumerationTable::getList([
-            'filter' => ['PROPERTY_ID' => $destinationPropertyId]
-        ])->fetchAll();
-
-        $existingEnumValuesMap = array_column($existingEnumValues, null, 'XML_ID');
-        $sourceEnumValuesMap = array_column($sourceProperty['ENUM_VALUES'], null, 'XML_ID');
-
-        foreach ($sourceEnumValuesMap as $xmlId => $sourceEnumValue) {
-            $newXmlId = $this->addIdSuffix($xmlId, $destinationPropertyId);
-
-            if (isset($existingEnumValuesMap[$newXmlId])) {
-                $this->updateEnumValue($sourceEnumValue, $existingEnumValuesMap[$newXmlId], $newXmlId, $destinationPropertyId);
             } else {
-                $this->createEnumValue($sourceEnumValue, $destinationPropertyId, $newXmlId);
+                $propertyId = $destIblockProperty->Add(array_merge($propertyFields, ['IBLOCK_ID' => $this->destinationIblockId]));
+                if ($propertyId) {
+                    Logger::log("Свойство {$property['CODE']} создано.");
+                } else {
+                    throw new \Exception("Ошибка при создании свойства {$property['CODE']}: " . $destIblockProperty->LAST_ERROR);
+                }
             }
 
-            unset($existingEnumValuesMap[$newXmlId]);
-        }
-
-        foreach ($existingEnumValuesMap as $enumValue) {
-            if (!$this->isCustomXmlId($enumValue['XML_ID'])) {
-                PropertyEnumerationTable::delete(['ID' => $enumValue['ID'], 'PROPERTY_ID' => $destinationPropertyId]);
+            if ($propertyId && $property['PROPERTY_TYPE'] == 'L') {
+                $this->copyPropertyEnumValues($property['ID'], $propertyId);
             }
+
+            // Обработка для инфоблока торговых предложений
+            if ($this->destinationOffersIblockId) {
+                Logger::log("Обработка свойства {$property['CODE']} для инфоблока торговых предложений (ID: {$this->destinationOffersIblockId})");
+
+                $existingOfferProperty = $findExistingProperty($this->destinationOffersIblockId);
+                if ($existingOfferProperty) {
+                    Logger::log("Свойство {$property['CODE']} (XML_ID: {$property['XML_ID']}) уже существует в инфоблоке торговых предложений.");
+                    $offerPropertyId = $existingOfferProperty['ID'];
+            
+                    // Подготовка полей для обновления ТП
+                    $updateOfferFields = array_merge($propertyFields, ['IBLOCK_ID' => $this->destinationOffersIblockId]);
+
+                    // Попытка обновления свойства ТП
+                    if ($destIblockProperty->Update($offerPropertyId, $updateOfferFields)) {
+                        Logger::log("Свойство {$property['CODE']} обновлено в ТП.");
+                    } else {
+                        throw new \Exception("Ошибка при обновлении свойства {$property['CODE']} в ТП: " . $destIblockProperty->LAST_ERROR);
+                    }
+                } else {
+                    Logger::log("Создание нового свойства {$property['CODE']} в инфоблоке торговых предложений.");
+                    $offerPropertyId = $destIblockProperty->Add(array_merge($propertyFields, ['IBLOCK_ID' => $this->destinationOffersIblockId]));
+                    if ($offerPropertyId) {
+                        Logger::log("Свойство {$property['CODE']} создано в ТП.");
+                    } else {
+                        throw new \Exception("Ошибка при создании свойства {$property['CODE']} в ТП: " . $destIblockProperty->LAST_ERROR);
+                    }
+                }
+
+                if (isset($offerPropertyId) && $offerPropertyId && $property['PROPERTY_TYPE'] == 'L') {
+                    $this->copyPropertyEnumValues($property['ID'], $offerPropertyId);
+                }
+            } else {
+                Logger::log("Инфоблок торговых предложений не задан.");
+            }
+
+        } catch (\Exception $e) {
+            Logger::log("Исключение: " . $e->getMessage() . "");
+            Logger::log("Трассировка стека:");
+            Logger::log("<pre>" . $e->getTraceAsString() . "</pre>");
+        }
+
+        // Дополнительная проверка на ошибки
+        global $DB;
+        if ($DB->GetErrorMessage()) {
+            Logger::log("Final Query Error: " . $DB->GetErrorMessage() . "");
+            Logger::log("Final Last SQL Query: " . $DB->LastQuery() . "");
         }
     }
 
-    private function addIdSuffix($xmlId, $propertyId)
+    private function copyPropertyEnumValues($sourcePropertyId, $destPropertyId)
     {
-        return $xmlId . '_' . $propertyId;
-    }
-
-    private function isCustomXmlId($xmlId)
-    {
-        return !preg_match('/_\d+$/', $xmlId);
-    }
-
-    private function updateEnumValue($sourceEnumValue, $existingEnumValue, $newXmlId, $propertyId)
-    {
-        PropertyEnumerationTable::update(
-            ['ID' => $existingEnumValue['ID'], 'PROPERTY_ID' => $propertyId],
-            [
-                'VALUE' => $sourceEnumValue['VALUE'],
-                'SORT' => $sourceEnumValue['SORT'],
-                'DEF' => $sourceEnumValue['DEF'],
-                'XML_ID' => $newXmlId
-            ]
+        $enumValues = \CIBlockPropertyEnum::GetList(
+            ['SORT' => 'ASC'],
+            ['PROPERTY_ID' => $sourcePropertyId]
         );
+
+        $obEnum = new \CIBlockPropertyEnum;
+        while ($enumValue = $enumValues->GetNext()) {
+            // Проверяем, есть ли исходный XML_ID. Если нет, используем значение VALUE как XML_ID
+            $sourceXmlId = !empty($enumValue['XML_ID']) ? $enumValue['XML_ID'] : strtolower($enumValue['VALUE']);
+
+            // Генерация уникального XML_ID путем объединения ID свойства и исходного XML_ID
+            $newXmlId = $destPropertyId . '_' . $sourceXmlId;
+
+            // Проверяем, существует ли уже такое значение по XML_ID
+            $existingEnum = \CIBlockPropertyEnum::GetList(
+                [],
+                [
+                    'PROPERTY_ID' => $destPropertyId,
+                    'XML_ID' => $newXmlId
+                ]
+            )->Fetch();
+
+            if ($existingEnum) {
+                Logger::log("Значение списка '{$enumValue['VALUE']}' уже существует для свойства {$destPropertyId} с XML_ID '{$newXmlId}'.");
+                continue;
+            }
+
+            $fields = [
+                'PROPERTY_ID' => $destPropertyId,
+                'VALUE' => $enumValue['VALUE'],
+                'DEF' => $enumValue['DEF'],
+                'SORT' => $enumValue['SORT'],
+                'XML_ID' => $newXmlId,
+            ];
+
+            if ($obEnum->Add($fields)) {
+                Logger::log("Значение списка '{$enumValue['VALUE']}' скопировано для свойства {$destPropertyId} с XML_ID '{$newXmlId}'.");
+            } else {
+                Logger::log("Ошибка при копировании значения списка '{$enumValue['VALUE']}' для свойства {$destPropertyId}: " . $obEnum->LAST_ERROR . "");
+            }
+        }
     }
 
-    private function createEnumValue($enumValue, $propertyId, $xmlId)
+    private function ensureDirectoryProperty($code, $name, $hlbId)
     {
-        PropertyEnumerationTable::add([
-            'PROPERTY_ID' => $propertyId,
-            'VALUE' => $enumValue['VALUE'],
-            'SORT' => $enumValue['SORT'],
-            'DEF' => $enumValue['DEF'],
-            'XML_ID' => $xmlId
-        ]);
+        Logger::log("Начало ensureDirectoryProperty для {$code}");
+
+        $iblockIds = [$this->destinationIblockId];
+        if ($this->destinationOffersIblockId) {
+            $iblockIds[] = $this->destinationOffersIblockId;
+        }
+
+        // Получаем информацию о Highload-блоке по ID
+        $hlblock = HighloadBlockTable::getById($hlbId)->fetch();
+        if (!$hlblock) {
+            Logger::log("Ошибка: Highload-блок с ID {$hlbId} не найден");
+            return;
+        }
+
+        $hlbName = $hlblock['NAME'];
+        Logger::log("Найден Highload-блок: {$hlbName} (ID: {$hlbId})");
+
+        foreach ($iblockIds as $iblockId) {
+            $property = \CIBlockProperty::GetList([], [
+                'IBLOCK_ID' => $iblockId,
+                'CODE' => $code
+            ])->Fetch();
+
+            $userTypeSettings = [
+                'TABLE_NAME' => $hlblock['TABLE_NAME'],
+                'DIRECTORY_TABLE_NAME' => $hlblock['TABLE_NAME'],
+                'size' => 1,
+                'width' => 0,
+                'group' => 'N',
+                'multiple' => 'N',
+                'directoryId' => $hlbId
+            ];
+
+            $fields = [
+                'IBLOCK_ID' => $iblockId,
+                'NAME' => $name,
+                'ACTIVE' => 'Y',
+                'SORT' => '500',
+                'CODE' => $code,
+                'PROPERTY_TYPE' => 'S',
+                'USER_TYPE' => 'directory',
+                'LIST_TYPE' => 'L',
+                'MULTIPLE' => 'N',
+                'IS_REQUIRED' => 'N',
+                'SEARCHABLE' => 'N',
+                'FILTRABLE' => 'Y',
+                'WITH_DESCRIPTION' => 'N',
+                'MULTIPLE_CNT' => '5',
+                'HINT' => '',
+                'USER_TYPE_SETTINGS' => $userTypeSettings,
+                'FEATURES' => [
+                    [
+                        'MODULE_ID' => 'catalog',
+                        'FEATURE_ID' => 'IN_BASKET',
+                        'IS_ENABLED' => 'Y'
+                    ]
+                ]
+            ];
+
+            $ibp = new \CIBlockProperty;
+
+            if (!$property) {
+                $propertyId = $ibp->Add($fields);
+                if ($propertyId) {
+                    Logger::log("Свойство {$code} создано для инфоблока {$iblockId}");
+                } else {
+                    Logger::log("Ошибка при создании свойства {$code} для инфоблока {$iblockId}: " . $ibp->LAST_ERROR . "");
+                    continue;
+                }
+            } else {
+                $propertyId = $property['ID'];
+                if ($ibp->Update($propertyId, $fields)) {
+                    Logger::log("Свойство {$code} обновлено для инфоблока {$iblockId}");
+                } else {
+                    Logger::log("Ошибка при обновлении свойства {$code} для инфоблока {$iblockId}: " . $ibp->LAST_ERROR . "");
+                    continue;
+                }
+            }
+
+            // Проверяем, правильно ли установлена привязка
+            $updatedProperty = \CIBlockProperty::GetByID($propertyId)->Fetch();
+            $updatedUserTypeSettings = $updatedProperty['USER_TYPE_SETTINGS'];
+            
+            if (is_string($updatedUserTypeSettings)) {
+                $updatedUserTypeSettings = unserialize($updatedUserTypeSettings);
+            }
+            
+            if (!is_array($updatedUserTypeSettings) || $updatedUserTypeSettings['TABLE_NAME'] !== $hlblock['TABLE_NAME']) {
+                Logger::log("Ошибка: Привязка к Highload-блоку не установлена корректно для свойства {$code} (ID: {$propertyId})");
+                Logger::log("Текущие настройки: " . Logger::log($updatedUserTypeSettings, true) . "");
+            } else {
+                Logger::log("Привязка к Highload-блоку {$hlbName} успешно установлена для свойства {$code} (ID: {$propertyId})");
+            }
+        }
+
+        Logger::log("Завершение ensureDirectoryProperty для {$code}");
     }
 }

@@ -18,5 +18,9 @@ Loader::registerAutoLoadClasses(
         'Pragma\\ImportModule\\Agent\\MainCode\\SectionTreeCreator' => 'lib/agent/main_code/SectionTreeCreator.php',
         'Pragma\\ImportModule\\Agent\\MainCode\\TradeOfferSorter' => 'lib/agent/main_code/TradeOfferSorter.php',
         'Pragma\\ImportModule\\Agent\\MainCode\\IblockPropertiesCopier' => 'lib/agent/main_code/IblockPropertiesCopier.php',
+        'Pragma\\ImportModule\\Agent\\MainCode\\SizeMatcher' => 'lib/agent/main_code/SizeMatcher.php',
+        'Pragma\\ImportModule\\Agent\\MainCode\\ColorMatcher' => 'lib/agent/main_code/ColorMatcher.php',
+        'Pragma\\ImportModule\\Agent\\MainCode\\SimpleProductImporter' => 'lib/agent/main_code/SimpleProductImporter.php',
+        'Pragma\\ImportModule\\Agent\\MainCode\\TradeOfferImporter' => 'lib/agent/main_code/TradeOfferImporter.php',
     ]
 );

@@ -26,14 +26,14 @@ class SectionTreeCreator
     private $totalProcessedCount;
     private $batchSize = 1000;
 
-    public function __construct($moduleId, $sourceIblockId)
+    public function __construct($moduleId, $sourceIblockId, $priceGroupId)
     {
         $this->moduleId = $moduleId;
         $this->sourceIblockId = $sourceIblockId;
         $this->sectionMappings = unserialize(Option::get($this->moduleId, "SECTION_MAPPINGS"));
         $this->lastId = 0;
         $this->totalProcessedCount = 0;
-        $this->setPriceGroupId();
+        $this->priceGroupId = $priceGroupId;
         Option::delete($this->moduleId, ['name' => 'LAST_ID_TEST']);
     }
 
@@ -61,20 +61,6 @@ class SectionTreeCreator
         Logger::log("Завершение createSectionTree()");
 
         return $executionTime; // Возвращаем время выполнения
-    }
-
-    private function setPriceGroupId()
-    {
-        $priceGroups = GroupTable::getList([
-            'filter' => ['BASE' => 'Y'],
-            'select' => ['ID']
-        ])->fetchAll();
-
-        if (empty($priceGroups)) {
-            throw new \Exception('Базовая группа цен не найдена.');
-        }
-
-        $this->priceGroupId = $priceGroups[0]['ID'];
     }
 
     private function getElements()
