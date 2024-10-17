@@ -627,6 +627,7 @@ class SimpleProductImporter
             $productEntry = $productData[$oldId];
             $productEntry['ID'] = $newId;
             $productEntry['TYPE'] = $productType;
+            $productEntry['AVAILABLE'] = 'Y';
             $productEntries[] = $productEntry;
         }
 
