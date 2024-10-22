@@ -12,6 +12,7 @@ use Pragma\ImportModule\Agent\MainCode\TradeOfferSorter;
 use Pragma\ImportModule\Agent\MainCode\IblockPropertiesCopier;
 use Pragma\ImportModule\Agent\MainCode\ColorMatcher;
 use Pragma\ImportModule\Agent\MainCode\SizeMatcher;
+use Pragma\ImportModule\Agent\MainCode\TypeMatcher;
 use Pragma\ImportModule\Agent\MainCode\SimpleProductImporter;
 use Pragma\ImportModule\Agent\MainCode\TradeOfferImporter;
 
@@ -125,12 +126,23 @@ class ImportAgent
             Logger::log("Завершено сопоставление размеров. Время выполнения: {$sizeDuration}");
 
 
+            // Сопоставление типов (6 Этап)
+            $typeStartTime = microtime(true);
+            Logger::log("Начало сопоставления типов");
+
+            $typeMatcher = new TypeMatcher($moduleId);
+            $typeMatcher->matchTypes();
+            $typeMatcher->createMissingTypes();
+            $typeMatcher->updateDatabase();
+            $typeEndTime = microtime(true);
+            $typeDuration = self::getExecutionTimeMs($typeStartTime, $typeEndTime);
+            Logger::log("Завершено сопоставление размеров. Время выполнения: {$typeDuration}");
 
 
-
+            // Копирование ДАННЫХ
             $targetOffersIblockId = \CCatalogSKU::GetInfoByProductIBlock($destinationIblockId)['IBLOCK_ID'];
 
-            // Копирование свойств (6 Этап)
+            // Копирование свойств (7 Этап)
             $propertiesStartTime = microtime(true);
             Logger::log("Начало копирования свойств");
 

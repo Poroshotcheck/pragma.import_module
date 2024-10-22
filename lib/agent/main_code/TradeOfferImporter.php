@@ -5,7 +5,6 @@ namespace Pragma\ImportModule\Agent\MainCode;
 // Use namespaces
 use Bitrix\Main\Loader;
 use Bitrix\Iblock\ElementTable;
-use Pragma\ImportModule\ModuleDataTable;
 use Bitrix\Main\Application;
 use Bitrix\Main\Entity\Query;
 use Bitrix\Catalog\PriceTable;
@@ -15,8 +14,10 @@ use Bitrix\Iblock\PropertyEnumerationTable;
 use Bitrix\Iblock\ElementPropertyTable;
 use Bitrix\Currency\CurrencyManager;
 use Bitrix\Iblock\SectionElementTable;
-use Pragma\ImportModule\Logger;
 use Bitrix\Catalog\StoreProductTable;
+
+use Pragma\ImportModule\ModuleDataTable;
+use Pragma\ImportModule\Logger;
 
 class TradeOfferImporter
 {
@@ -103,6 +104,22 @@ class TradeOfferImporter
 
         // Check existing elements in target infoblocks
         $existingElements = $this->getExistingElements($moduleData);
+
+        // Создаем экземпляр ProductUpdater
+        $productUpdater = new ProductUpdater($this->priceGroupId);
+
+        // Подготовка данных для обновления
+        $elementIds = array_column($moduleData, 'ELEMENT_ID');
+        $elementsDataArray = $this->getElementsData($elementIds);
+        $elementsDataByXmlId = [];
+        foreach ($elementsDataArray as $element) {
+            $elementsDataByXmlId[$element['XML_ID']] = $element;
+        }
+
+        // Обновляем существующие предложения
+        if (!empty($existingElements['offers'])) {
+            $productUpdater->updateExistingElements($existingElements['offers'], $elementsDataByXmlId);
+        }
 
         // Create parent products for groups without existing parents
         $this->createParentElements($groupedElements, $existingElements['parents']);
@@ -668,7 +685,6 @@ class TradeOfferImporter
 
             // Include warehouse stock data
             $preparedData['warehouseData'][$elementId] = $element['STORE_STOCK'];
-
             // Process properties
             if (isset($propertiesByElement[$elementId])) {
                 $preparedData['properties'][$elementId] = $this->processProperties($propertiesByElement[$elementId], $elementId);
@@ -676,9 +692,10 @@ class TradeOfferImporter
                 $preparedData['properties'][$elementId] = [];
             }
 
-            // Assign SIZE_MODULE_REF and COLOR_MODULE_REF properties directly
             $preparedData['properties'][$elementId]['SIZE_MODULE_REF'] = $item['SIZE_VALUE_ID'] ?? null;
             $preparedData['properties'][$elementId]['COLOR_MODULE_REF'] = $item['COLOR_VALUE_ID'] ?? null;
+            $preparedData['properties'][$elementId]['TYPE_MODULE_REF'] = $item['TYPE_VALUE_ID'] ?? null;
+
         }
 
         return $preparedData;

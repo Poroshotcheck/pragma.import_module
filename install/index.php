@@ -57,11 +57,13 @@ class pragma_importmodule extends CModule
             // HLBs for colors and sizes
             $colorHlbId = $this->getOrCreateHLB('PragmaColorReference', $this->getColorFields());
             $sizeHlbId = $this->getOrCreateHLB('PragmaSizeReference', $this->getSizeFields());
+            $typeHlbId = $this->getOrCreateHLB('PragmaTypeReference', $this->getTypeFields());
 
             // Save HLB IDs in module options if both were found/created successfully
             if ($colorHlbId && $sizeHlbId) {
                 Option::set($this->MODULE_ID, "COLOR_HLB_ID", $colorHlbId);
                 Option::set($this->MODULE_ID, "SIZE_HLB_ID", $sizeHlbId);
+                Option::set($this->MODULE_ID, "TYPE_HLB_ID", $typeHlbId);
                 echo "Highload blocks created/found and IDs saved successfully.";
             } else {
                 throw new \Exception("Error creating or finding Highload blocks.");
@@ -143,6 +145,20 @@ class pragma_importmodule extends CModule
 
     // Define the fields for sizes HLB
     private function getSizeFields()
+    {
+        return [
+            'UF_SIMILAR' => ['USER_TYPE_ID' => 'string', 'SORT' => 100, 'MULTIPLE' => true],
+            'UF_NAME' => ['USER_TYPE_ID' => 'string', 'SORT' => 100, 'MULTIPLE' => false, 'MANDATORY' => true],
+            'UF_SORT' => ['USER_TYPE_ID' => 'integer', 'SORT' => 200, 'MULTIPLE' => false],
+            'UF_XML_ID' => ['USER_TYPE_ID' => 'string', 'SORT' => 300, 'MULTIPLE' => false, 'MANDATORY' => true],
+            'UF_LINK' => ['USER_TYPE_ID' => 'string', 'SORT' => 400, 'MULTIPLE' => false],
+            'UF_DESCRIPTION' => ['USER_TYPE_ID' => 'string', 'SORT' => 500, 'MULTIPLE' => false],
+            'UF_FULL_DESCRIPTION' => ['USER_TYPE_ID' => 'string', 'SORT' => 600, 'MULTIPLE' => false],
+            'UF_DEF' => ['USER_TYPE_ID' => 'boolean', 'SORT' => 700, 'MULTIPLE' => false],
+        ];
+    }
+
+    private function getTypeFields()
     {
         return [
             'UF_SIMILAR' => ['USER_TYPE_ID' => 'string', 'SORT' => 100, 'MULTIPLE' => true],

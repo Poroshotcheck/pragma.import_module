@@ -8,7 +8,7 @@ use Bitrix\Main\Entity\StringField;
 use Bitrix\Main\Entity\TextField;
 use Bitrix\Main\Config\Option;
 
-class ModuleDataTable extends DataManager // Изменено
+class ModuleDataTable extends DataManager 
 {
     private static function getModuleVersionData()
     {
@@ -31,8 +31,8 @@ class ModuleDataTable extends DataManager // Изменено
                 'primary' => true,
                 'autocomplete' => true,
             ]),
-            new TextField('TARGET_SECTION_ID', [ // Изменено на TextField
-                'serialized' => true // Добавлено для сериализации массива
+            new TextField('TARGET_SECTION_ID', [ 
+                'serialized' => true 
             ]), 
             new IntegerField('SOURCE_SECTION_ID'),
             new IntegerField('ELEMENT_ID'),
@@ -40,13 +40,14 @@ class ModuleDataTable extends DataManager // Изменено
             new StringField('ELEMENT_XML_ID', ['size' => 255]),
             new StringField('SIZE_VALUE_ID', ['size' => 255]),
             new StringField('COLOR_VALUE_ID', ['size' => 255]),
+            new StringField('TYPE_VALUE_ID', ['size' => 255]),
             new StringField('CHAIN_TOGEZER', [
                 'size' => 255,
                 'default_value' => ''
             ]),
         ];
     
-        // Проверяем, не пустой ли массив $importMappings
+
         if (!empty($importMappings)) {
             foreach ($importMappings as $mapping) {
                 foreach ($mapping['PROPERTIES'] as $property) {
@@ -55,7 +56,7 @@ class ModuleDataTable extends DataManager // Изменено
                 }
             }
         } else {
-            // Добавляем поля по умолчанию, если $importMappings пустой
+
             $fields[] = new StringField('ELEMENT_ARTICLE', ['size' => 255]);
             $fields[] = new StringField('ELEMENT_BARCODE', ['size' => 255]);
         }

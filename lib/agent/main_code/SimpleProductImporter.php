@@ -4,7 +4,6 @@ namespace Pragma\ImportModule\Agent\MainCode;
 
 use Bitrix\Main\Loader;
 use Bitrix\Iblock\ElementTable;
-use Pragma\ImportModule\ModuleDataTable;
 use Bitrix\Main\Application;
 use Bitrix\Main\Entity\Query;
 use Bitrix\Catalog\PriceTable;
@@ -14,9 +13,11 @@ use Bitrix\Iblock\PropertyEnumerationTable;
 use Bitrix\Iblock\ElementPropertyTable;
 use Bitrix\Currency\CurrencyManager;
 use Bitrix\Iblock\SectionElementTable;
-use Pragma\ImportModule\Logger;
 use Bitrix\Catalog\StoreProductTable;
 use Bitrix\Catalog\StoreTable;
+
+use Pragma\ImportModule\ModuleDataTable;
+use Pragma\ImportModule\Logger;
 
 class SimpleProductImporter
 {
@@ -69,6 +70,21 @@ class SimpleProductImporter
             }
 
             $existingElements = $this->getExistingElements($moduleData);
+            // Создаем экземпляр ProductUpdater
+            $productUpdater = new ProductUpdater($this->priceGroupId);
+
+            // Подготовка данных для обновления
+            $elementsData = $this->getElementsData(array_column($moduleData, 'ELEMENT_ID'));
+            $elementsDataByXmlId = [];
+            foreach ($elementsData as $element) {
+                $elementsDataByXmlId[$element['XML_ID']] = $element;
+            }
+
+            // Обновляем существующие элементы
+            if (!empty($existingElements['target'])) {
+                $productUpdater->updateExistingElements($existingElements['target'], $elementsDataByXmlId);
+            }
+
             $newModuleData = $this->filterExistingElements($moduleData, $existingElements);
 
             if (empty($newModuleData)) {
@@ -201,7 +217,7 @@ class SimpleProductImporter
             $this->addPrices($newElementIds, $preparedData['prices']);
             $this->addProductData($newElementIds, $preparedData['products'], \Bitrix\Catalog\ProductTable::TYPE_PRODUCT);
 
-            // Добавляем данные об остатках на складах
+            // Add warehouse stock data
             $this->addWarehouseStockData($newElementIds, $preparedData['warehouseData']);
         } else {
             Logger::log("Ошибка при создании простых продуктов.");
@@ -262,14 +278,14 @@ class SimpleProductImporter
 
         $elementsResult = $query->exec();
 
-        // Инициализируем массив элементов
+        // Initialize elements array
         $elements = [];
 
         while ($element = $elementsResult->fetch()) {
             $elementId = $element['ID'];
 
             if (!isset($elements[$elementId])) {
-                // Инициализируем данные элемента
+                // Initialize element data
                 $elements[$elementId] = [
                     'ID' => $element['ID'],
                     'NAME' => $element['NAME'],
@@ -282,11 +298,11 @@ class SimpleProductImporter
                     'PRICE_VALUE' => $element['PRICE_VALUE'],
                     'CURRENCY_VALUE' => $element['CURRENCY_VALUE'],
                     'QUANTITY_VALUE' => $element['QUANTITY_VALUE'],
-                    'STORE_STOCK' => [], // Инициализируем как пустой массив
+                    'STORE_STOCK' => [], // Initialize as empty array
                 ];
             }
 
-            // Сохраняем данные об остатках на складе
+            // Save warehouse stock data
             if ($element['STORE_ID'] !== null) {
                 $elements[$elementId]['STORE_STOCK'][] = [
                     'STORE_ID' => $element['STORE_ID'],
@@ -355,7 +371,13 @@ class SimpleProductImporter
         $productData = [];
         $sectionData = [];
         $propertiesData = [];
-        $warehouseData = []; // Массив для хранения данных об остатках на складах
+        $warehouseData = []; // Array to store warehouse stock data
+
+        // Build mapping of elementId to module data item
+        $itemByElementId = [];
+        foreach ($newModuleData as $item) {
+            $itemByElementId[$item['ELEMENT_ID']] = $item;
+        }
 
         foreach ($elementsData as $elementId => $element) {
             $newElements[$elementId] = [
@@ -385,9 +407,18 @@ class SimpleProductImporter
 
             if (isset($propertiesByElement[$elementId])) {
                 $propertiesData[$elementId] = $this->processProperties($propertiesByElement[$elementId], $elementId);
+            } else {
+                $propertiesData[$elementId] = [];
             }
 
-            // Включаем данные об остатках на складах
+            // Add SIZE_MODULE_REF and COLOR_MODULE_REF from module data
+            if (isset($itemByElementId[$elementId])) {
+                $item = $itemByElementId[$elementId];
+                $propertiesData[$elementId]['SIZE_MODULE_REF'] = $item['SIZE_VALUE_ID'] ?? null;
+                $propertiesData[$elementId]['COLOR_MODULE_REF'] = $item['COLOR_VALUE_ID'] ?? null;
+            }
+
+            // Include warehouse stock data
             $warehouseData[$elementId] = $element['STORE_STOCK'];
         }
 
@@ -400,7 +431,7 @@ class SimpleProductImporter
             'products' => $productData,
             'sections' => $sectionData,
             'properties' => $propertiesData,
-            'warehouseData' => $warehouseData, // Включаем в возвращаемые данные
+            'warehouseData' => $warehouseData,
         ];
     }
 
@@ -454,13 +485,17 @@ class SimpleProductImporter
             return [];
         }
     }
+
+    /**
+     * Add warehouse stock data to new elements
+     */
     protected function addWarehouseStockData($newElementIds, $warehouseData)
     {
         $storeProductEntries = [];
         foreach ($newElementIds as $oldId => $newId) {
             if (isset($warehouseData[$oldId]) && !empty($warehouseData[$oldId])) {
                 foreach ($warehouseData[$oldId] as $stock) {
-                    // Используем идентификаторы складов напрямую
+                    // Use store IDs directly
                     $storeProductEntries[] = [
                         'PRODUCT_ID' => $newId,
                         'STORE_ID' => $stock['STORE_ID'],
@@ -484,6 +519,7 @@ class SimpleProductImporter
             flush();
         }
     }
+
     /**
      * Add properties to new elements using addMulti
      */
@@ -593,7 +629,7 @@ class SimpleProductImporter
         foreach ($newElementIds as $oldId => $newId) {
             $priceEntry = $priceData[$oldId];
             $priceEntry['PRODUCT_ID'] = $newId;
-            $priceEntry['CATALOG_GROUP_ID'] = 1;
+            $priceEntry['CATALOG_GROUP_ID'] = $this->priceGroupId;
 
             // Convert price to base currency for PRICE_SCALE
             $baseCurrency = CurrencyManager::getBaseCurrency();

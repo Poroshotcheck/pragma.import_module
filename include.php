@@ -20,6 +20,8 @@ Loader::registerAutoLoadClasses(
         'Pragma\\ImportModule\\Agent\\MainCode\\IblockPropertiesCopier' => 'lib/agent/main_code/IblockPropertiesCopier.php',
         'Pragma\\ImportModule\\Agent\\MainCode\\SizeMatcher' => 'lib/agent/main_code/SizeMatcher.php',
         'Pragma\\ImportModule\\Agent\\MainCode\\ColorMatcher' => 'lib/agent/main_code/ColorMatcher.php',
+        'Pragma\\ImportModule\\Agent\\MainCode\\TypeMatcher' => 'lib/agent/main_code/TypeMatcher.php',
+        'Pragma\\ImportModule\\Agent\\MainCode\\ProductUpdater' => 'lib/agent/main_code/ProductUpdater.php',
         'Pragma\\ImportModule\\Agent\\MainCode\\SimpleProductImporter' => 'lib/agent/main_code/SimpleProductImporter.php',
         'Pragma\\ImportModule\\Agent\\MainCode\\TradeOfferImporter' => 'lib/agent/main_code/TradeOfferImporter.php',
     ]
