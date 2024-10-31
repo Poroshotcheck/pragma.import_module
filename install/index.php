@@ -169,6 +169,7 @@ class pragma_importmodule extends CModule
             'UF_DESCRIPTION' => ['USER_TYPE_ID' => 'string', 'SORT' => 500, 'MULTIPLE' => false],
             'UF_FULL_DESCRIPTION' => ['USER_TYPE_ID' => 'string', 'SORT' => 600, 'MULTIPLE' => false],
             'UF_DEF' => ['USER_TYPE_ID' => 'boolean', 'SORT' => 700, 'MULTIPLE' => false],
+            'UF_FILE' => ['USER_TYPE_ID' => 'file', 'SORT' => 800, 'MULTIPLE' => false],
         ];
     }
 

@@ -6,6 +6,7 @@ use Bitrix\Main\Application;
 use Bitrix\Main\Config\Option;
 use Bitrix\Highloadblock\HighloadBlockTable;
 use Pragma\ImportModule\ModuleDataTable;
+use Pragma\ImportModule\Logger;
 
 Loader::includeModule('highloadblock');
 
@@ -24,155 +25,197 @@ class SizeMatcher
         $this->moduleId = $moduleId;
         $this->hlblockId = Option::get($this->moduleId, 'SIZE_HLB_ID');
 
-        // Optimized data loading
-        $this->loadElementsAndSizes();
+        //Logger::log("Инициализация SizeMatcher с moduleId = {$this->moduleId} и hlblockId = {$this->hlblockId}");
+
+        try {
+            $this->loadElementsAndSizes();
+        } catch (\Exception $e) {
+            Logger::log("Ошибка при инициализации SizeMatcher: " . $e->getMessage(), "ERROR");
+            throw $e;
+        }
     }
 
     /**
-     * Load elements and sizes in an optimized way to reduce database queries.
+     * Загрузка элементов и размеров оптимизированным способом для уменьшения количества запросов к базе данных.
      */
     private function loadElementsAndSizes()
     {
-        // Step 1: Load elements with necessary fields only
-        $elementsResult = ModuleDataTable::getList([
-            'select' => ['ID', 'ELEMENT_NAME'],
-            'filter' => [
-                '!TARGET_SECTION_ID' => 'a:0:{}',
-            ],
-        ]);
+        //Logger::log("Начало загрузки элементов и размеров в loadElementsAndSizes()");
 
-        $this->elements = [];
-        $normalizedElementSizes = [];
+        try {
+            // Шаг 1: Загрузка элементов с необходимыми полями
+            $elementsResult = ModuleDataTable::getList([
+                'select' => ['ID', 'ELEMENT_NAME'],
+                'filter' => [
+                    '!TARGET_SECTION_ID' => 'a:0:{}',
+                ],
+            ]);
 
-        while ($element = $elementsResult->fetch()) {
-            $sizePart = $this->extractSizePart($element['ELEMENT_NAME']);
-            $normalizedSize = $this->normalizeSize($sizePart);
-            $element['NORMALIZED_SIZE'] = $normalizedSize;
-            $this->elements[] = $element;
+            $this->elements = [];
+            $normalizedElementSizes = [];
 
-            // Collect all unique normalized sizes from elements
-            if (!empty($normalizedSize)) {
-                $normalizedElementSizes[$normalizedSize] = true;
+            while ($element = $elementsResult->fetch()) {
+                $sizePart = $this->extractSizePart($element['ELEMENT_NAME']);
+                $normalizedSize = $this->normalizeSize($sizePart);
+                $element['NORMALIZED_SIZE'] = $normalizedSize;
+                $this->elements[] = $element;
+
+                // Собираем все уникальные нормализованные размеры из элементов
+                if (!empty($normalizedSize)) {
+                    $normalizedElementSizes[$normalizedSize] = true;
+                }
             }
-        }
 
-        // Step 2: Load sizes from Highload Block and build a mapping
-        $hlblock = HighloadBlockTable::getById($this->hlblockId)->fetch();
-        $entity = HighloadBlockTable::compileEntity($hlblock);
-        $entityDataClass = $entity->getDataClass();
+            //Logger::log("Успешно загружено " . count($this->elements) . " элементов.");
 
-        $rsData = $entityDataClass::getList([
-            'select' => ['ID', 'UF_NAME', 'UF_XML_ID'],
-        ]);
+            // Шаг 2: Загрузка размеров из Highload Block и построение маппинга
+            $hlblock = HighloadBlockTable::getById($this->hlblockId)->fetch();
 
-        $this->sizeMap = [];
-
-        while ($item = $rsData->fetch()) {
-            $normalizedDbSize = $this->normalizeSize($item['UF_NAME']);
-            if (!empty($normalizedDbSize)) {
-                $this->sizeMap[$normalizedDbSize][] = $item;
+            if (!$hlblock) {
+                throw new \Exception("Highload-блок с ID {$this->hlblockId} не найден.");
             }
+
+            $entity = HighloadBlockTable::compileEntity($hlblock);
+            $entityDataClass = $entity->getDataClass();
+
+            $rsData = $entityDataClass::getList([
+                'select' => ['ID', 'UF_NAME', 'UF_XML_ID'],
+            ]);
+
+            $this->sizeMap = [];
+
+            while ($item = $rsData->fetch()) {
+                $normalizedDbSize = $this->normalizeSize($item['UF_NAME']);
+                if (!empty($normalizedDbSize)) {
+                    $this->sizeMap[$normalizedDbSize][] = $item;
+                }
+            }
+
+            //Logger::log("Успешно загружено " . count($this->sizeMap) . " размеров из Highload-блока.");
+        } catch (\Exception $e) {
+            Logger::log("Ошибка в loadElementsAndSizes(): " . $e->getMessage(), "ERROR");
+            throw $e;
         }
     }
 
     public function matchSizes()
     {
-        foreach ($this->elements as $element) {
-            $normalizedElementSize = $element['NORMALIZED_SIZE'];
+        //Logger::log("Начало сопоставления размеров в matchSizes()");
 
-            if (empty($normalizedElementSize)) {
-                continue;
-            }
+        try {
+            foreach ($this->elements as $element) {
+                $normalizedElementSize = $element['NORMALIZED_SIZE'];
 
-            // Attempt to find an exact match in the size map
-            if (isset($this->sizeMap[$normalizedElementSize])) {
-                $bestMatch = $this->selectBestMatch($element['NORMALIZED_SIZE'], $this->sizeMap[$normalizedElementSize]);
+                if (empty($normalizedElementSize)) {
+                    continue;
+                }
+
+                // Попытка найти точное совпадение в маппинге размеров
+                if (isset($this->sizeMap[$normalizedElementSize])) {
+                    $bestMatch = $this->selectBestMatch($normalizedElementSize, $this->sizeMap[$normalizedElementSize]);
+
+                    if ($bestMatch !== null) {
+                        $this->updateCollection[] = [
+                            'ID' => $element['ID'],
+                            'SIZE_VALUE_ID' => $bestMatch['UF_XML_ID'],
+                        ];
+                        continue;
+                    }
+                }
+
+                // Если нет точного совпадения, попытка найти лучшее частичное совпадение
+                $bestMatch = null;
+                $bestMatchScore = 0;
+
+                foreach ($this->sizeMap as $normalizedDbSize => $dbSizes) {
+                    foreach ($dbSizes as $dbSize) {
+                        $score = $this->calculateMatchScore($normalizedElementSize, $normalizedDbSize);
+
+                        if ($score > $bestMatchScore) {
+                            $bestMatchScore = $score;
+                            $bestMatch = $dbSize['UF_XML_ID'];
+                        }
+                    }
+                }
 
                 if ($bestMatch !== null) {
                     $this->updateCollection[] = [
                         'ID' => $element['ID'],
-                        'SIZE_VALUE_ID' => $bestMatch['UF_XML_ID'],
+                        'SIZE_VALUE_ID' => $bestMatch,
                     ];
-                    continue;
                 }
             }
 
-            // If no exact match, attempt to find the best partial match
-            $bestMatch = null;
-            $bestMatchScore = 0;
+            //Logger::log("Сопоставление размеров завершено. Найдено соответствий: " . count($this->updateCollection));
+        } catch (\Exception $e) {
+            Logger::log("Ошибка в matchSizes(): " . $e->getMessage(), "ERROR");
+            throw $e;
+        }
 
-            foreach ($this->sizeMap as $normalizedDbSize => $dbSizes) {
-                foreach ($dbSizes as $dbSize) {
-                    $score = $this->calculateMatchScore($normalizedElementSize, $normalizedDbSize);
+    }
 
-                    if ($score > $bestMatchScore) {
-                        $bestMatchScore = $score;
-                        $bestMatch = $dbSize['UF_XML_ID'];
+    /**
+     * Выбор лучшего совпадения из нескольких размеров с одинаковым нормализованным размером.
+     *
+     * @param string $elementSize Нормализованный размер из элемента.
+     * @param array $dbSizes Массив размеров из базы данных.
+     * @return array|null Лучший совпадающий размер или null.
+     */
+    private function selectBestMatch($elementSize, $dbSizes)
+    {
+        try {
+            // Так как размеры нормализованы, можно выбрать первый
+            return $dbSizes[0];
+        } catch (\Exception $e) {
+            Logger::log("Ошибка в selectBestMatch(): " . $e->getMessage(), "ERROR");
+            throw $e;
+        }
+    }
+
+    /**
+     * Вычисление оценки совпадения между двумя строками размеров.
+     *
+     * @param string $size1 Первая строка размера.
+     * @param string $size2 Вторая строка размера.
+     * @return int Оценка совпадения.
+     */
+    private function calculateMatchScore($size1, $size2)
+    {
+        try {
+            $score = 0;
+            $size1Parts = preg_split('/[\s-]+/', $size1);
+            $size2Parts = preg_split('/[\s-]+/', $size2);
+
+            foreach ($size1Parts as $index => $part1) {
+                if (isset($size2Parts[$index])) {
+                    $part2 = $size2Parts[$index];
+                    if ($this->isPartialMatch($part1, $part2)) {
+                        $score += $this->getPartScore($part1, $part2);
                     }
                 }
             }
 
-            if ($bestMatch !== null) {
-                $this->updateCollection[] = [
-                    'ID' => $element['ID'],
-                    'SIZE_VALUE_ID' => $bestMatch,
-                ];
-            }
+            return $score;
+        } catch (\Exception $e) {
+            Logger::log("Ошибка в calculateMatchScore(): " . $e->getMessage(), "ERROR");
+            throw $e;
         }
     }
 
     /**
-     * Select the best match from multiple sizes with the same normalized size.
+     * Проверка частичного совпадения двух частей размера.
      *
-     * @param string $elementSize The normalized size from the element.
-     * @param array $dbSizes The array of sizes from the database.
-     * @return array|null The best matching size data or null.
-     */
-    private function selectBestMatch($elementSize, $dbSizes)
-    {
-        // Since sizes are normalized, we can select the first one
-        return $dbSizes[0];
-    }
-
-    /**
-     * Calculate a match score between two size strings.
-     *
-     * @param string $size1 The first size string.
-     * @param string $size2 The second size string.
-     * @return int The match score.
-     */
-    private function calculateMatchScore($size1, $size2)
-    {
-        $score = 0;
-        $size1Parts = preg_split('/[\s-]+/', $size1);
-        $size2Parts = preg_split('/[\s-]+/', $size2);
-
-        foreach ($size1Parts as $index => $part1) {
-            if (isset($size2Parts[$index])) {
-                $part2 = $size2Parts[$index];
-                if ($this->isPartialMatch($part1, $part2)) {
-                    $score += $this->getPartScore($part1, $part2);
-                }
-            }
-        }
-
-        return $score;
-    }
-
-    /**
-     * Check if two size parts partially match.
-     *
-     * @param string $part1 The first size part.
-     * @param string $part2 The second size part.
-     * @return bool True if parts partially match, false otherwise.
+     * @param string $part1 Первая часть размера.
+     * @param string $part2 Вторая часть размера.
+     * @return bool True если части частично совпадают, иначе false.
      */
     private function isPartialMatch($part1, $part2)
     {
-        if ($part1 === $part2) {
-            return true;
-        }
-
         try {
+            if ($part1 === $part2) {
+                return true;
+            }
+
             $value1 = $this->parseFraction($part1);
             $value2 = $this->parseFraction($part2);
 
@@ -183,11 +226,11 @@ class SizeMatcher
     }
 
     /**
-     * Parse a fraction or number string into a float.
+     * Парсинг строки с дробью или числом в float.
      *
-     * @param string $str The string to parse.
-     * @return float The parsed number.
-     * @throws \Exception If the string is not a valid number.
+     * @param string $str Строка для парсинга.
+     * @return float Распарсенное число.
+     * @throws \Exception Если строка не является допустимым числом.
      */
     private function parseFraction($str)
     {
@@ -197,97 +240,121 @@ class SizeMatcher
             $denominator = trim($denominator);
 
             if (!is_numeric($numerator) || !is_numeric($denominator) || $denominator == 0) {
-                throw new \Exception("Invalid fraction: $str");
+                throw new \Exception("Недопустимая дробь: $str");
             }
 
             return floatval($numerator) / floatval($denominator);
         }
 
         if (!is_numeric($str)) {
-            throw new \Exception("Invalid number: $str");
+            throw new \Exception("Недопустимое число: $str");
         }
 
         return floatval($str);
     }
 
     /**
-     * Get the score for matching two size parts.
+     * Получение оценки для совпадения двух частей размера.
      *
-     * @param string $part1 The first size part.
-     * @param string $part2 The second size part.
-     * @return int The part score.
+     * @param string $part1 Первая часть размера.
+     * @param string $part2 Вторая часть размера.
+     * @return int Оценка части.
      */
     private function getPartScore($part1, $part2)
     {
-        if ($part1 === $part2) {
-            return strlen($part1) * 2;
+        try {
+            if ($part1 === $part2) {
+                return strlen($part1) * 2;
+            }
+            return strlen($part1);
+        } catch (\Exception $e) {
+            Logger::log("Ошибка в getPartScore(): " . $e->getMessage(), "ERROR");
+            throw $e;
         }
-        return strlen($part1);
     }
 
     /**
-     * Normalize a size string for better comparison.
+     * Нормализация строки размера для лучшего сравнения.
      *
-     * @param string $size The size string to normalize.
-     * @return string The normalized size string.
+     * @param string $size Строка размера для нормализации.
+     * @return string Нормализованная строка размера.
      */
     private function normalizeSize($size)
     {
-        $normalized = preg_replace('/[^a-zA-Z0-9\-\/\s]/', '', $size);
-        $normalized = strtolower($normalized);
+        try {
+            $normalized = preg_replace('/[^a-zA-Z0-9\-\/\s]/', '', $size);
+            $normalized = strtolower($normalized);
 
-        return trim($normalized);
+            return trim($normalized);
+        } catch (\Exception $e) {
+            Logger::log("Ошибка в normalizeSize(): " . $e->getMessage(), "ERROR");
+            throw $e;
+        }
     }
 
     /**
-     * Extract the size part from the element name.
+     * Извлечение части размера из названия элемента.
      *
-     * @param string $str The element name.
-     * @return string The extracted size part.
+     * @param string $str Название элемента.
+     * @return string Извлечённая часть размера.
      */
     private function extractSizePart($str)
     {
-        foreach ($this->mainSeparators as $separator) {
-            $parts = explode($separator, $str);
-            if (count($parts) > 1) {
-                return trim(end($parts));
+        try {
+            foreach ($this->mainSeparators as $separator) {
+                $parts = explode($separator, $str);
+                if (count($parts) > 1) {
+                    return trim(end($parts));
+                }
             }
-        }
 
-        foreach ($this->additionalSeparators as $separator) {
-            $parts = explode($separator, $str);
-            if (count($parts) > 1) {
-                return trim(implode($separator, array_slice($parts, -2)));
+            foreach ($this->additionalSeparators as $separator) {
+                $parts = explode($separator, $str);
+                if (count($parts) > 1) {
+                    return trim(implode($separator, array_slice($parts, -2)));
+                }
             }
-        }
 
-        return trim($str);
+            return trim($str);
+        } catch (\Exception $e) {
+            Logger::log("Ошибка в extractSizePart(): " . $e->getMessage(), "ERROR");
+            throw $e;
+        }
     }
 
     public function updateDatabase()
     {
+        //Logger::log("Начало обновления базы данных в updateDatabase()");
+       
         if (empty($this->updateCollection)) {
+            Logger::log("Нет данных для обновления в базе данных.");
             return;
         }
 
-        $connection = Application::getConnection();
-        $sqlHelper = $connection->getSqlHelper();
-        $tableName = ModuleDataTable::getTableName();
+        try {
+            $connection = Application::getConnection();
+            $sqlHelper = $connection->getSqlHelper();
+            $tableName = ModuleDataTable::getTableName();
 
-        // Prepare the bulk update using CASE WHEN
-        $updateCases = [];
-        foreach ($this->updateCollection as $element) {
-            $updateCases[] = "WHEN {$sqlHelper->forSql($element['ID'])} THEN '{$sqlHelper->forSql($element['SIZE_VALUE_ID'])}'";
+            // Подготовка массового обновления с использованием CASE WHEN
+            $updateCases = [];
+            foreach ($this->updateCollection as $element) {
+                $updateCases[] = "WHEN {$sqlHelper->forSql($element['ID'])} THEN '{$sqlHelper->forSql($element['SIZE_VALUE_ID'])}'";
+            }
+
+            $updateSql = "
+                UPDATE {$tableName}
+                SET SIZE_VALUE_ID = CASE ID
+                    " . implode(' ', $updateCases) . "
+                END
+                WHERE ID IN (" . implode(',', array_column($this->updateCollection, 'ID')) . ")
+            ";
+
+            $connection->queryExecute($updateSql);
+            //Logger::log("Успешно обновлено " . count($this->updateCollection) . " записей в базе данных.");
+        } catch (\Exception $e) {
+            Logger::log("Ошибка в updateDatabase(): " . $e->getMessage(), "ERROR");
+            throw $e;
         }
-
-        $updateSql = "
-            UPDATE {$tableName}
-            SET SIZE_VALUE_ID = CASE ID
-                " . implode(' ', $updateCases) . "
-            END
-            WHERE ID IN (" . implode(',', array_column($this->updateCollection, 'ID')) . ")
-        ";
-
-        $connection->queryExecute($updateSql);
     }
 }

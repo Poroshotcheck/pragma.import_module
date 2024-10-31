@@ -20,7 +20,7 @@
     text-decoration: none;
     display: inline-block;
     font-size: 14px;
-    margin: 4px 2px;
+    /* margin: 4px 2px; */
     cursor: pointer;
     border-radius: 5px;
 }
@@ -85,8 +85,9 @@ form button[onclick^="add"]:hover {
 .select-wrapper,
 .import-mapping .select-wrapper {
     display: flex;
+    flex-direction: row;
     align-items: flex-start;
-    flex-direction: column-reverse;
+    justify-content: flex-start;
 }
 
 .select-wrapper .section-select,
@@ -117,6 +118,14 @@ form button[onclick^="add"]:hover {
 /* Стили для контейнера свойств */
 .import-mapping .import-properties-container {
     margin-top: 10px;
+}
+
+.properties-container {
+    margin: 10px 0px;
+}
+
+.property {
+    margin: 10px 0px;
 }
 
 .import-mapping .import-property {

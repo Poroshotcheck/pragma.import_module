@@ -281,17 +281,23 @@ $tabControl->Begin();
                 foreach ($sectionMappings as $index => $mapping):
                     ?>
                     <div class="section-mapping">
-                        <div class="select-wrapper"> <select name="SECTION_MAPPINGS[<?= $index ?>][SECTION_ID]"
-                                class="section-select" data-index="<?= $index ?>">
-                                <?php
-                                if ($iblockIdCatalog && $sections) {
-                                    echo SectionHelper::getSectionOptionsHtml($iblockIdCatalog, $mapping['SECTION_ID'], $sections);
-                                }
-                                ?>
-                            </select>
-                            <input type="text" class="search-input" placeholder="Поиск..." style="display: none;">
-                        </div> <button type="button"
-                            onclick="removeMapping(this)"><?= Loc::getMessage("PRAGMA_IMPORT_MODULE_REMOVE_MAPPING") ?></button>
+                        <div class="select-wrapper">
+                            <div class="select-wrapper">
+                                <div>
+                                    <input type="text" class="search-input" placeholder="Поиск..." style="display: none;">
+                                    <select name="SECTION_MAPPINGS[<?= $index ?>][SECTION_ID]" class="section-select"
+                                        data-index="<?= $index ?>">
+                                        <?php
+                                        if ($iblockIdCatalog) {
+                                            echo SectionHelper::getSectionOptionsHtml($iblockIdCatalog, $mapping['SECTION_ID'], $sections);
+                                        }
+                                        ?>
+                                    </select>
+                                </div>
+                                <button type="button"
+                                    onclick="removeMapping(this)"><?= Loc::getMessage("PRAGMA_IMPORT_MODULE_REMOVE_MAPPING") ?></button>
+                            </div>
+                        </div>
                         <div class="properties-container">
                             <?php foreach ($mapping['PROPERTIES'] as $propIndex => $property): ?>
                                 <div class="property">
@@ -320,7 +326,13 @@ $tabControl->Begin();
             <div id="import_mappings_container">
                 <?php
                 if (empty($importMappings)) {
-                    $importMappings = [];
+                    $importMappings = [
+                        [
+                            'SECTION_ID' => '',
+                            'TOTAL_MATCHES' => 0,
+                            'PROPERTIES' => []
+                        ]
+                    ];
                 }
 
                 // Получаем данные из кэша один раз перед циклом 
@@ -398,10 +410,12 @@ $tabControl->Begin();
 <template id="section-mapping-template">
     <div class="section-mapping">
         <div class="select-wrapper">
-            <select name="SECTION_MAPPINGS[{index}][SECTION_ID]" class="section-select">
-            </select>
-            <input type="text" class="search-input" placeholder="Поиск..." style="display: none;"> <button type="button"
-                onclick="removeMapping(this)">
+            <div>
+                <input type="text" class="search-input" placeholder="Поиск..." style="display: none;">
+                <select name="SECTION_MAPPINGS[{index}][SECTION_ID]" class="section-select">
+                </select>
+            </div>
+            <button type="button" onclick="removeMapping(this)">
                 <?= Loc::getMessage("PRAGMA_IMPORT_MODULE_REMOVE_MAPPING") ?>
             </button>
         </div>

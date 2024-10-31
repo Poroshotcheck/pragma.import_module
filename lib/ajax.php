@@ -6,7 +6,7 @@ require_once($_SERVER["DOCUMENT_ROOT"]."/bitrix/modules/main/include/prolog_befo
 require_once($_SERVER["DOCUMENT_ROOT"] . "/local/modules/pragma.importmodule/lib/SectionHelper.php");
 require_once($_SERVER["DOCUMENT_ROOT"] . "/local/modules/pragma.importmodule/lib/CacheHelper.php"); 
 require_once($_SERVER["DOCUMENT_ROOT"] . "/local/modules/pragma.importmodule/lib/Logger.php"); 
-require_once($_SERVER["DOCUMENT_ROOT"] . "/local/modules/pragma.importmodule/lib/PropertyHelper.php"); // Добавляем PropertyHelper
+require_once($_SERVER["DOCUMENT_ROOT"] . "/local/modules/pragma.importmodule/lib/PropertyHelper.php");
 
 use Pragma\ImportModule\SectionHelper;
 use Pragma\ImportModule\CacheHelper;

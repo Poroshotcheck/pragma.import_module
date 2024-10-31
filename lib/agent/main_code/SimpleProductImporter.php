@@ -15,7 +15,6 @@ use Bitrix\Currency\CurrencyManager;
 use Bitrix\Iblock\SectionElementTable;
 use Bitrix\Catalog\StoreProductTable;
 use Bitrix\Catalog\StoreTable;
-
 use Pragma\ImportModule\ModuleDataTable;
 use Pragma\ImportModule\Logger;
 
@@ -31,148 +30,184 @@ class SimpleProductImporter
 
     public function __construct($moduleId, $sourceIblockId, $targetIblockId, $targetOffersIblockId, $priceGroupId)
     {
-        Loader::includeModule('iblock');
-        Loader::includeModule('catalog');
+        try {
+            Loader::includeModule('iblock');
+            Loader::includeModule('catalog');
 
-        $this->moduleId = $moduleId;
-        $this->sourceIblockId = $sourceIblockId;
-        $this->targetIblockId = $targetIblockId;
-        $this->priceGroupId = $priceGroupId;
-        $this->targetOffersIblockId = $targetOffersIblockId;
+            $this->moduleId = $moduleId;
+            $this->sourceIblockId = $sourceIblockId;
+            $this->targetIblockId = $targetIblockId;
+            $this->priceGroupId = $priceGroupId;
+            $this->targetOffersIblockId = $targetOffersIblockId;
 
-        $this->enumMapping = $this->getEnumMapping();
-        $this->targetProperties = $this->getTargetProperties();
+            $this->enumMapping = $this->getEnumMapping();
+            $this->targetProperties = $this->getTargetProperties();
+        } catch (\Exception $e) {
+            Logger::log("Ошибка в конструкторе SimpleProductImporter: " . $e->getMessage(), "ERROR");
+            throw $e;
+        }
     }
 
     public function copyElementsFromModuleData($batchSize = 1000)
     {
-        $startTime = microtime(true);
-        $this->processElementsWithoutChain($batchSize);
-        $endTime = microtime(true);
-        $executionTime = $endTime - $startTime;
-
-        Logger::log("Импорт простых продуктов завершен. Время выполнения: " . round($executionTime, 2) . " секунд.");
+        try {
+            $this->processElementsWithoutChain($batchSize);
+        } catch (\Exception $e) {
+            Logger::log("Ошибка в copyElementsFromModuleData(): " . $e->getMessage(), "ERROR");
+            Logger::log("Трассировка: " . $e->getTraceAsString(), "ERROR");
+            throw $e;
+        }
     }
 
     /**
-     * Process elements without CHAIN_TOGEZER
+     * Обработка элементов без CHAIN_TOGEZER
      */
     protected function processElementsWithoutChain($batchSize)
     {
         $offset = 0;
 
-        while (true) {
-            $moduleData = $this->getModuleData($batchSize, $offset);
+        try {
+            while (true) {
+                $moduleData = $this->getModuleData($batchSize, $offset);
 
-            if (empty($moduleData)) {
-                Logger::log("Обработка элементов без CHAIN_TOGEZER завершена.");
-                break;
-            }
+                if (empty($moduleData)) {
+                    //Logger::log("Обработка элементов без CHAIN_TOGEZER завершена");
+                    break;
+                }
 
-            $existingElements = $this->getExistingElements($moduleData);
-            // Создаем экземпляр ProductUpdater
-            $productUpdater = new ProductUpdater($this->priceGroupId);
+                $existingElements = $this->getExistingElements($moduleData);
+                $productUpdater = new ProductUpdater($this->priceGroupId);
 
-            // Подготовка данных для обновления
-            $elementsData = $this->getElementsData(array_column($moduleData, 'ELEMENT_ID'));
-            $elementsDataByXmlId = [];
-            foreach ($elementsData as $element) {
-                $elementsDataByXmlId[$element['XML_ID']] = $element;
-            }
+                // Подготовка данных для обновления
+                $elementsData = $this->getElementsData(array_column($moduleData, 'ELEMENT_ID'));
+                $elementsDataByXmlId = [];
+                foreach ($elementsData as $element) {
+                    $elementsDataByXmlId[$element['XML_ID']] = $element;
+                }
 
-            // Обновляем существующие элементы
-            if (!empty($existingElements['target'])) {
-                $productUpdater->updateExistingElements($existingElements['target'], $elementsDataByXmlId);
-            }
+                // Обновляем существующие элементы
+                if (!empty($existingElements['target'])) {
+                    $productUpdater->updateExistingElements($existingElements['target'], $elementsDataByXmlId);
+                }
 
-            $newModuleData = $this->filterExistingElements($moduleData, $existingElements);
+                if (!empty($existingElements['offers'])) {
+                    $productUpdater->updateExistingElements($existingElements['offers'], $elementsDataByXmlId);
+                }
 
-            if (empty($newModuleData)) {
-                Logger::log("Все элементы в этом пакете уже существуют в целевых инфоблоках.");
+                $newModuleData = $this->filterExistingElements($moduleData, $existingElements);
+
+                if (empty($newModuleData)) {
+                    //Logger::log("Все элементы в этом пакете уже существуют в целевых инфоблоках");
+                    $offset += $batchSize;
+                    continue;
+                }
+
+                $elementIdsToCopy = array_column($newModuleData, 'ELEMENT_ID');
+                $newElementIds = $this->copyIblockElements($elementIdsToCopy, $newModuleData);
+
+                if (!empty($newElementIds)) {
+                    Logger::log("Создано " . count($newElementIds) . ' новых "простых" товаров');
+                } else {
+                    Logger::log("Ошибка при создании простых товаров", "ERROR");
+                }
+
                 $offset += $batchSize;
-                continue;
             }
-
-            $elementIdsToCopy = array_column($newModuleData, 'ELEMENT_ID');
-            $newElementIds = $this->copyIblockElements($elementIdsToCopy, $newModuleData);
-
-            if (!empty($newElementIds)) {
-                Logger::log("Создано " . count($newElementIds) . " новых простых продуктов.");
-            } else {
-                Logger::log("Ошибка при создании простых продуктов.");
-            }
-
-            $offset += $batchSize;
+        } catch (\Exception $e) {
+            Logger::log("Ошибка в processElementsWithoutChain(): " . $e->getMessage(), "ERROR");
+            Logger::log("Трассировка: " . $e->getTraceAsString(), "ERROR");
+            throw $e;
         }
     }
 
     /**
-     * Get data from ModuleDataTable
+     * Получает данные из ModuleDataTable
      */
     protected function getModuleData($batchSize = 0, $offset = 0)
     {
-        $filter = ['!TARGET_SECTION_ID' => 'a:0:{}'];
+        //Logger::log("Получение данных из ModuleDataTable с offset: {$offset}, batchSize: {$batchSize}");
+        try {
+            $filter = ['!TARGET_SECTION_ID' => 'a:0:{}'];
 
-        // Elements without CHAIN_TOGEZER
-        $filter[] = [
-            'LOGIC' => 'OR',
-            ['CHAIN_TOGEZER' => false],
-            ['CHAIN_TOGEZER' => 0],
-            ['CHAIN_TOGEZER' => null],
-        ];
+            // Elements without CHAIN_TOGEZER
+            $filter[] = [
+                'LOGIC' => 'OR',
+                ['CHAIN_TOGEZER' => false],
+                ['CHAIN_TOGEZER' => 0],
+                ['CHAIN_TOGEZER' => null],
+            ];
 
-        $queryParams = [
-            'filter' => $filter,
-            'offset' => $offset,
-        ];
+            $queryParams = [
+                'filter' => $filter,
+                'offset' => $offset,
+            ];
 
-        if ($batchSize > 0) {
-            $queryParams['limit'] = $batchSize;
+            if ($batchSize > 0) {
+                $queryParams['limit'] = $batchSize;
+            }
+
+            $moduleDataResult = ModuleDataTable::getList($queryParams);
+
+            $data = $moduleDataResult->fetchAll();
+            //Logger::log("Получено " . count($data) . " записей из ModuleDataTable");
+        } catch (\Exception $e) {
+            Logger::log("Ошибка в getModuleData(): " . $e->getMessage(), "ERROR");
+            throw $e;
         }
 
-        $moduleDataResult = ModuleDataTable::getList($queryParams);
-
-        return $moduleDataResult->fetchAll();
+        return $data;
     }
 
     /**
-     * Check existing elements in target IBlock and sales offers IBlock
+     * Проверка существующих элементов в целевых инфоблоках
      */
     protected function getExistingElements($moduleData)
     {
-        $elementXmlIds = array_column($moduleData, 'ELEMENT_XML_ID');
+        //Logger::log("Проверка существующих элементов в целевых инфоблоках");
 
-        // Arrays to store existing elements
-        $existingElementsInTarget = [];
-        $existingElementsInOffers = [];
+        try {
+            $elementXmlIds = array_column($moduleData, 'ELEMENT_XML_ID');
 
-        // Check for elements in target IBlock
-        $targetElements = ElementTable::getList([
-            'filter' => [
-                'IBLOCK_ID' => $this->targetIblockId,
-                'XML_ID' => $elementXmlIds
-            ],
-            'select' => ['ID', 'XML_ID']
-        ])->fetchAll();
+            // Arrays to store existing elements
+            $existingElementsInTarget = [];
+            $existingElementsInOffers = [];
 
-        foreach ($targetElements as $element) {
-            $existingElementsInTarget[$element['XML_ID']] = $element['ID'];
-        }
-
-        // Check for elements in trade offers IBlock
-        if ($this->targetOffersIblockId) {
-            $offerElements = ElementTable::getList([
+            // Check for elements in target IBlock
+            $targetElements = ElementTable::getList([
                 'filter' => [
-                    'IBLOCK_ID' => $this->targetOffersIblockId,
+                    'IBLOCK_ID' => $this->targetIblockId,
                     'XML_ID' => $elementXmlIds
                 ],
                 'select' => ['ID', 'XML_ID']
             ])->fetchAll();
 
-            foreach ($offerElements as $element) {
-                $existingElementsInOffers[$element['XML_ID']] = $element['ID'];
+            foreach ($targetElements as $element) {
+                $existingElementsInTarget[$element['XML_ID']] = $element['ID'];
             }
+
+            // Check for elements in trade offers IBlock
+            if ($this->targetOffersIblockId) {
+                $offerElements = ElementTable::getList([
+                    'filter' => [
+                        'IBLOCK_ID' => $this->targetOffersIblockId,
+                        'XML_ID' => $elementXmlIds
+                    ],
+                    'select' => ['ID', 'XML_ID']
+                ])->fetchAll();
+
+                foreach ($offerElements as $element) {
+                    $existingElementsInOffers[$element['XML_ID']] = $element['ID'];
+                }
+            }
+
+            Logger::log("Найдено " . count($existingElementsInTarget) . " существующих элементов в целевом инфоблоке");
+            Logger::log("Найдено " . count($existingElementsInOffers) . " существующих элементов в инфоблоке торговых предложений");
+        } catch (\Exception $e) {
+            Logger::log("Ошибка в getExistingElements(): " . $e->getMessage(), "ERROR");
+            throw $e;
         }
+
+        //Logger::log("Завершена проверка существующих элементов. Время выполнения: {$duration} секунд");
 
         return [
             'target' => $existingElementsInTarget,
@@ -181,249 +216,279 @@ class SimpleProductImporter
     }
 
     /**
-     * Filter existing elements from current batch
+     * Фильтрация существующих элементов из текущего пакета
      */
     protected function filterExistingElements($moduleData, $existingElements)
     {
-        $existingXmlIds = array_merge(
-            array_keys($existingElements['target']),
-            array_keys($existingElements['offers'])
-        );
+        //Logger::log("Фильтрация существующих элементов из текущего пакета");
 
-        return array_filter($moduleData, function ($item) use ($existingXmlIds) {
-            return !in_array($item['ELEMENT_XML_ID'], $existingXmlIds);
-        });
+        try {
+            $existingXmlIds = array_merge(
+                array_keys($existingElements['target']),
+                array_keys($existingElements['offers'])
+            );
+
+            $filteredData = array_filter($moduleData, function ($item) use ($existingXmlIds) {
+                return !in_array($item['ELEMENT_XML_ID'], $existingXmlIds);
+            });
+
+            //Logger::log("После фильтрации осталось " . count($filteredData) . " новых элементов для обработки");
+        } catch (\Exception $e) {
+            Logger::log("Ошибка в filterExistingElements(): " . $e->getMessage(), "ERROR");
+            throw $e;
+        }
+
+        //Logger::log("Завершена фильтрация существующих элементов. Время выполнения: {$duration} секунд");
+
+        return $filteredData;
     }
 
     /**
-     * Copy elements to target IBlock
+     * Копирование элементов в целевой инфоблок
      */
     protected function copyIblockElements($elementIds, $newModuleData)
     {
-        Logger::log("Копирование элементов: " . implode(', ', $elementIds));
-        flush();
+        //Logger::log("Начало копирования элементов: " . implode(', ', $elementIds));
 
-        $elementsData = $this->getElementsData($elementIds);
-        $propertiesByElement = $this->getElementsProperties($elementIds);
+        try {
+            $elementsData = $this->getElementsData($elementIds);
+            $propertiesByElement = $this->getElementsProperties($elementIds);
 
-        $preparedData = $this->prepareNewElementsData($elementsData, $propertiesByElement, $newModuleData);
+            $preparedData = $this->prepareNewElementsData($elementsData, $propertiesByElement, $newModuleData);
 
-        $newElementIds = $this->createNewElements($preparedData['elements'], $preparedData['sections'], $preparedData['properties']);
+            $newElementIds = $this->createNewElements($preparedData['elements'], $preparedData['sections'], $preparedData['properties']);
 
-        if (!empty($newElementIds)) {
-            Logger::log("Создано " . count($newElementIds) . " новых простых продуктов.");
-            flush();
-
-            $this->addPrices($newElementIds, $preparedData['prices']);
-            $this->addProductData($newElementIds, $preparedData['products'], \Bitrix\Catalog\ProductTable::TYPE_PRODUCT);
-
-            // Add warehouse stock data
-            $this->addWarehouseStockData($newElementIds, $preparedData['warehouseData']);
-        } else {
-            Logger::log("Ошибка при создании простых продуктов.");
-            flush();
+            if (!empty($newElementIds)) {
+                Logger::log("Создано " . count($newElementIds) . " новых простых продуктов");
+                $this->addPrices($newElementIds, $preparedData['prices']);
+                $this->addProductData($newElementIds, $preparedData['products'], \Bitrix\Catalog\ProductTable::TYPE_PRODUCT);
+                $this->addWarehouseStockData($newElementIds, $preparedData['warehouseData']);
+            } else {
+                Logger::log("Ошибка при создании простых продуктов", "ERROR");
+            }
+        } catch (\Exception $e) {
+            Logger::log("Ошибка в copyIblockElements(): " . $e->getMessage(), "ERROR");
+            Logger::log("Трассировка: " . $e->getTraceAsString(), "ERROR");
+            throw $e;
         }
-
         return $newElementIds;
     }
 
     /**
-     * Get elements data from source IBlock
+     * Получение данных элементов из исходного инфоблока
      */
     protected function getElementsData($elementIds)
     {
-        $query = new Query(ElementTable::getEntity());
-        $query->setSelect([
-            'ID',
-            'NAME',
-            'XML_ID',
-            'CODE',
-            'DETAIL_TEXT',
-            'DETAIL_TEXT_TYPE',
-            'PREVIEW_TEXT',
-            'PREVIEW_TEXT_TYPE',
-            'PRICE_VALUE' => 'PRICE.PRICE',
-            'CURRENCY_VALUE' => 'PRICE.CURRENCY',
-            'QUANTITY_VALUE' => 'PRODUCT.QUANTITY',
-            'STORE_ID' => 'STORE_PRODUCT.STORE_ID',
-            'STORE_AMOUNT' => 'STORE_PRODUCT.AMOUNT',
-        ]);
-        $query->setFilter(['ID' => $elementIds, 'IBLOCK_ID' => $this->sourceIblockId]);
-        $query->registerRuntimeField(
-            'PRICE',
-            [
-                'data_type' => PriceTable::getEntity(),
-                'reference' => [
-                    '=this.ID' => 'ref.PRODUCT_ID',
-                ],
-                'join_type' => 'LEFT'
-            ]
-        );
-        $query->registerRuntimeField(
-            'PRODUCT',
-            [
-                'data_type' => ProductTable::getEntity(),
-                'reference' => ['=this.ID' => 'ref.ID'],
-                'join_type' => 'LEFT'
-            ]
-        );
-        $query->registerRuntimeField(
-            'STORE_PRODUCT',
-            [
-                'data_type' => StoreProductTable::getEntity(),
-                'reference' => ['=this.ID' => 'ref.PRODUCT_ID'],
-                'join_type' => 'LEFT'
-            ]
-        );
+        //Logger::log("Получение данных элементов из исходного инфоблока");
 
-        $elementsResult = $query->exec();
+        try {
+            $query = new Query(ElementTable::getEntity());
+            $query->setSelect([
+                'ID',
+                'NAME',
+                'XML_ID',
+                'CODE',
+                'DETAIL_TEXT',
+                'DETAIL_TEXT_TYPE',
+                'PREVIEW_TEXT',
+                'PREVIEW_TEXT_TYPE',
+                'PRICE_VALUE' => 'PRICE.PRICE',
+                'CURRENCY_VALUE' => 'PRICE.CURRENCY',
+                'QUANTITY_VALUE' => 'PRODUCT.QUANTITY',
+                'STORE_ID' => 'STORE_PRODUCT.STORE_ID',
+                'STORE_AMOUNT' => 'STORE_PRODUCT.AMOUNT',
+            ]);
+            $query->setFilter(['ID' => $elementIds, 'IBLOCK_ID' => $this->sourceIblockId]);
+            $query->registerRuntimeField(
+                'PRICE',
+                [
+                    'data_type' => PriceTable::getEntity(),
+                    'reference' => [
+                        '=this.ID' => 'ref.PRODUCT_ID',
+                    ],
+                    'join_type' => 'LEFT'
+                ]
+            );
+            $query->registerRuntimeField(
+                'PRODUCT',
+                [
+                    'data_type' => ProductTable::getEntity(),
+                    'reference' => ['=this.ID' => 'ref.ID'],
+                    'join_type' => 'LEFT'
+                ]
+            );
+            $query->registerRuntimeField(
+                'STORE_PRODUCT',
+                [
+                    'data_type' => StoreProductTable::getEntity(),
+                    'reference' => ['=this.ID' => 'ref.PRODUCT_ID'],
+                    'join_type' => 'LEFT'
+                ]
+            );
 
-        // Initialize elements array
-        $elements = [];
+            $elementsResult = $query->exec();
 
-        while ($element = $elementsResult->fetch()) {
-            $elementId = $element['ID'];
+            // Initialize elements array
+            $elements = [];
 
-            if (!isset($elements[$elementId])) {
-                // Initialize element data
-                $elements[$elementId] = [
-                    'ID' => $element['ID'],
-                    'NAME' => $element['NAME'],
-                    'XML_ID' => $element['XML_ID'],
-                    'CODE' => $element['CODE'],
-                    'DETAIL_TEXT' => $element['DETAIL_TEXT'],
-                    'DETAIL_TEXT_TYPE' => $element['DETAIL_TEXT_TYPE'],
-                    'PREVIEW_TEXT' => $element['PREVIEW_TEXT'],
-                    'PREVIEW_TEXT_TYPE' => $element['PREVIEW_TEXT_TYPE'],
-                    'PRICE_VALUE' => $element['PRICE_VALUE'],
-                    'CURRENCY_VALUE' => $element['CURRENCY_VALUE'],
-                    'QUANTITY_VALUE' => $element['QUANTITY_VALUE'],
-                    'STORE_STOCK' => [], // Initialize as empty array
-                ];
+            while ($element = $elementsResult->fetch()) {
+                $elementId = $element['ID'];
+
+                if (!isset($elements[$elementId])) {
+                    // Initialize element data
+                    $elements[$elementId] = [
+                        'ID' => $element['ID'],
+                        'NAME' => $element['NAME'],
+                        'XML_ID' => $element['XML_ID'],
+                        'CODE' => $element['CODE'],
+                        'DETAIL_TEXT' => $element['DETAIL_TEXT'],
+                        'DETAIL_TEXT_TYPE' => $element['DETAIL_TEXT_TYPE'],
+                        'PREVIEW_TEXT' => $element['PREVIEW_TEXT'],
+                        'PREVIEW_TEXT_TYPE' => $element['PREVIEW_TEXT_TYPE'],
+                        'PRICE_VALUE' => $element['PRICE_VALUE'],
+                        'CURRENCY_VALUE' => $element['CURRENCY_VALUE'],
+                        'QUANTITY_VALUE' => $element['QUANTITY_VALUE'],
+                        'STORE_STOCK' => [], // Initialize as empty array
+                    ];
+                }
+
+                // Save warehouse stock data
+                if ($element['STORE_ID'] !== null) {
+                    $elements[$elementId]['STORE_STOCK'][] = [
+                        'STORE_ID' => $element['STORE_ID'],
+                        'AMOUNT' => $element['STORE_AMOUNT'],
+                    ];
+                }
             }
 
-            // Save warehouse stock data
-            if ($element['STORE_ID'] !== null) {
-                $elements[$elementId]['STORE_STOCK'][] = [
-                    'STORE_ID' => $element['STORE_ID'],
-                    'AMOUNT' => $element['STORE_AMOUNT'],
-                ];
-            }
+            //Logger::log("Получено " . count($elements) . " элементов из исходного инфоблока");
+        } catch (\Exception $e) {
+            Logger::log("Ошибка в getElementsData(): " . $e->getMessage(), "ERROR");
+            throw $e;
         }
-
-        Logger::log("Получено " . count($elements) . " элементов из исходного инфоблока с данными об остатках на складах.");
-        flush();
 
         return $elements;
     }
 
     /**
-     * Get properties of elements from source IBlock
+     * Получение свойств элементов из исходного инфоблока
      */
     protected function getElementsProperties($elementIds)
     {
-        $propertiesQuery = new Query(ElementPropertyTable::getEntity());
-        $propertiesQuery->setSelect([
-            'IBLOCK_PROPERTY_ID',
-            'IBLOCK_ELEMENT_ID',
-            'VALUE',
-            'VALUE_ENUM',
-            'VALUE_NUM',
-            'DESCRIPTION',
-            'PROPERTY_ID' => 'PROPERTY.ID',
-            'CODE' => 'PROPERTY.CODE',
-            'PROPERTY_TYPE' => 'PROPERTY.PROPERTY_TYPE',
-            'MULTIPLE' => 'PROPERTY.MULTIPLE',
-            'USER_TYPE' => 'PROPERTY.USER_TYPE',
-        ]);
-        $propertiesQuery->setFilter(['IBLOCK_ELEMENT_ID' => $elementIds]);
-        $propertiesQuery->registerRuntimeField(
-            'PROPERTY',
-            [
-                'data_type' => PropertyTable::getEntity(),
-                'reference' => ['=this.IBLOCK_PROPERTY_ID' => 'ref.ID'],
-                'join_type' => 'INNER'
-            ]
-        );
+        //Logger::log("Получение свойств элементов из исходного инфоблока");
 
-        $propertiesResult = $propertiesQuery->exec();
-        $properties = $propertiesResult->fetchAll();
-        Logger::log("Retrieved element properties.");
-        flush();
+        try {
+            $propertiesQuery = new Query(ElementPropertyTable::getEntity());
+            $propertiesQuery->setSelect([
+                'IBLOCK_PROPERTY_ID',
+                'IBLOCK_ELEMENT_ID',
+                'VALUE',
+                'VALUE_ENUM',
+                'VALUE_NUM',
+                'DESCRIPTION',
+                'PROPERTY_ID' => 'PROPERTY.ID',
+                'CODE' => 'PROPERTY.CODE',
+                'PROPERTY_TYPE' => 'PROPERTY.PROPERTY_TYPE',
+                'MULTIPLE' => 'PROPERTY.MULTIPLE',
+                'USER_TYPE' => 'PROPERTY.USER_TYPE',
+            ]);
+            $propertiesQuery->setFilter(['IBLOCK_ELEMENT_ID' => $elementIds]);
+            $propertiesQuery->registerRuntimeField(
+                'PROPERTY',
+                [
+                    'data_type' => PropertyTable::getEntity(),
+                    'reference' => ['=this.IBLOCK_PROPERTY_ID' => 'ref.ID'],
+                    'join_type' => 'INNER'
+                ]
+            );
 
-        // Organize properties by element
-        $propertiesByElement = [];
-        foreach ($properties as $property) {
-            $elementId = $property['IBLOCK_ELEMENT_ID'];
-            $propertiesByElement[$elementId][] = $property;
+            $propertiesResult = $propertiesQuery->exec();
+            $properties = $propertiesResult->fetchAll();
+            // Logger::log("Получено свойств: " . count($properties));
+
+            // Organize properties by element
+            $propertiesByElement = [];
+            foreach ($properties as $property) {
+                $elementId = $property['IBLOCK_ELEMENT_ID'];
+                $propertiesByElement[$elementId][] = $property;
+            }
+        } catch (\Exception $e) {
+            Logger::log("Ошибка в getElementsProperties(): " . $e->getMessage(), "ERROR");
+            throw $e;
         }
 
         return $propertiesByElement;
     }
 
     /**
-     * Prepare data for new elements
+     * Подготовка данных для новых элементов
      */
     protected function prepareNewElementsData($elementsData, $propertiesByElement, $newModuleData)
     {
-        $newElements = [];
-        $priceData = [];
-        $productData = [];
-        $sectionData = [];
-        $propertiesData = [];
-        $warehouseData = []; // Array to store warehouse stock data
+        //Logger::log("Подготовка данных для новых элементов");
 
-        // Build mapping of elementId to module data item
-        $itemByElementId = [];
-        foreach ($newModuleData as $item) {
-            $itemByElementId[$item['ELEMENT_ID']] = $item;
-        }
+        try {
+            $newElements = [];
+            $priceData = [];
+            $productData = [];
+            $sectionData = [];
+            $propertiesData = [];
+            $warehouseData = [];
 
-        foreach ($elementsData as $elementId => $element) {
-            $newElements[$elementId] = [
-                'IBLOCK_ID' => $this->targetIblockId,
-                'NAME' => $element['NAME'],
-                'XML_ID' => $element['XML_ID'],
-                'CODE' => $element['CODE'] ?: \CUtil::translit($element['NAME'], 'ru'),
-                'DETAIL_TEXT' => $element['DETAIL_TEXT'],
-                'DETAIL_TEXT_TYPE' => $element['DETAIL_TEXT_TYPE'],
-                'PREVIEW_TEXT' => $element['PREVIEW_TEXT'],
-                'PREVIEW_TEXT_TYPE' => $element['PREVIEW_TEXT_TYPE'],
-                'ACTIVE' => 'Y',
-                'INDEX' => $elementId,
-                'IN_SECTIONS' => 'Y'
-            ];
-
-            $priceData[$elementId] = [
-                'PRICE' => $element['PRICE_VALUE'],
-                'CURRENCY' => $element['CURRENCY_VALUE'],
-            ];
-
-            $productData[$elementId] = [
-                'QUANTITY' => $element['QUANTITY_VALUE'],
-            ];
-
-            $sectionData[$elementId] = $this->getTargetSectionIdsForElement($elementId, $newModuleData);
-
-            if (isset($propertiesByElement[$elementId])) {
-                $propertiesData[$elementId] = $this->processProperties($propertiesByElement[$elementId], $elementId);
-            } else {
-                $propertiesData[$elementId] = [];
+            // Build mapping of elementId to module data item
+            $itemByElementId = [];
+            foreach ($newModuleData as $item) {
+                $itemByElementId[$item['ELEMENT_ID']] = $item;
             }
 
-            // Add SIZE_MODULE_REF and COLOR_MODULE_REF from module data
-            if (isset($itemByElementId[$elementId])) {
-                $item = $itemByElementId[$elementId];
-                $propertiesData[$elementId]['SIZE_MODULE_REF'] = $item['SIZE_VALUE_ID'] ?? null;
-                $propertiesData[$elementId]['COLOR_MODULE_REF'] = $item['COLOR_VALUE_ID'] ?? null;
+            foreach ($elementsData as $elementId => $element) {
+                $newElements[$elementId] = [
+                    'IBLOCK_ID' => $this->targetIblockId,
+                    'NAME' => $element['NAME'],
+                    'XML_ID' => $element['XML_ID'],
+                    'CODE' => $element['CODE'] ?: \CUtil::translit($element['NAME'], 'ru'),
+                    'DETAIL_TEXT' => $element['DETAIL_TEXT'],
+                    'DETAIL_TEXT_TYPE' => $element['DETAIL_TEXT_TYPE'],
+                    'PREVIEW_TEXT' => $element['PREVIEW_TEXT'],
+                    'PREVIEW_TEXT_TYPE' => $element['PREVIEW_TEXT_TYPE'],
+                    'ACTIVE' => 'Y',
+                    'INDEX' => $elementId,
+                    'IN_SECTIONS' => 'Y'
+                ];
+
+                $priceData[$elementId] = [
+                    'PRICE' => $element['PRICE_VALUE'],
+                    'CURRENCY' => $element['CURRENCY_VALUE'],
+                ];
+
+                $productData[$elementId] = [
+                    'QUANTITY' => $element['QUANTITY_VALUE'],
+                ];
+
+                $sectionData[$elementId] = $this->getTargetSectionIdsForElement($elementId, $newModuleData);
+
+                if (isset($propertiesByElement[$elementId])) {
+                    $propertiesData[$elementId] = $this->processProperties($propertiesByElement[$elementId], $elementId);
+                } else {
+                    $propertiesData[$elementId] = [];
+                }
+
+                // Add SIZE_MODULE_REF and COLOR_MODULE_REF from module data
+                if (isset($itemByElementId[$elementId])) {
+                    $item = $itemByElementId[$elementId];
+                    $propertiesData[$elementId]['SIZE_MODULE_REF'] = $item['SIZE_VALUE_ID'] ?? null;
+                    $propertiesData[$elementId]['COLOR_MODULE_REF'] = $item['COLOR_VALUE_ID'] ?? null;
+                }
+
+                // Include warehouse stock data
+                $warehouseData[$elementId] = $element['STORE_STOCK'];
             }
 
-            // Include warehouse stock data
-            $warehouseData[$elementId] = $element['STORE_STOCK'];
+            //Logger::log("Данные для новых элементов подготовлены");
+        } catch (\Exception $e) {
+            Logger::log("Ошибка в prepareNewElementsData(): " . $e->getMessage(), "ERROR");
+            throw $e;
         }
-
-        Logger::log("Подготовлены данные для новых элементов.");
-        flush();
 
         return [
             'elements' => $newElements,
@@ -436,10 +501,12 @@ class SimpleProductImporter
     }
 
     /**
-     * Create new elements in target IBlock
+     * Создание новых элементов в целевом инфоблоке
      */
     protected function createNewElements($elementsData, $sectionData, $propertiesData)
     {
+        //Logger::log("Начало создания новых элементов в целевом инфоблоке");
+
         $targetIblock = \Bitrix\Iblock\Iblock::wakeUp($this->targetIblockId);
         $targetIblockClass = $targetIblock->getEntityDataClass();
 
@@ -459,11 +526,9 @@ class SimpleProductImporter
                     $newId = $addResult->getId();
                     $newElementIds[$oldId] = $newId;
 
-                    Logger::log("Created element with ID $newId (old ID $oldId).");
-                    flush();
+                    //Logger::log("Создан элемент с ID {$newId} (старый ID {$oldId})");
                 } else {
-                    Logger::log("Error adding element with index $index: " . implode(", ", $addResult->getErrorMessages()) . "");
-                    flush();
+                    Logger::log("Ошибка при добавлении элемента с индексом {$index}: " . implode(", ", $addResult->getErrorMessages()), "ERROR");
                 }
             }
 
@@ -474,371 +539,434 @@ class SimpleProductImporter
             $this->addSectionsToElements($newElementIds, $sectionData);
 
             $connection->commitTransaction();
-            Logger::log("Successfully added " . count($newElementIds) . " new elements.");
-            flush();
-
-            return $newElementIds;
+            Logger::log("Успешно добавлено " . count($newElementIds) . " новых элементов");
         } catch (\Exception $e) {
             $connection->rollbackTransaction();
-            Logger::log("Error creating elements: " . $e->getMessage() . "");
-            flush();
-            return [];
+            Logger::log("Ошибка при создании элементов: " . $e->getMessage(), "ERROR");
+            throw $e;
         }
+
+        return $newElementIds;
     }
 
     /**
-     * Add warehouse stock data to new elements
+     * Добавляет данные об остатках на складах к новым элементам
      */
     protected function addWarehouseStockData($newElementIds, $warehouseData)
     {
-        $storeProductEntries = [];
-        foreach ($newElementIds as $oldId => $newId) {
-            if (isset($warehouseData[$oldId]) && !empty($warehouseData[$oldId])) {
-                foreach ($warehouseData[$oldId] as $stock) {
-                    // Use store IDs directly
-                    $storeProductEntries[] = [
-                        'PRODUCT_ID' => $newId,
-                        'STORE_ID' => $stock['STORE_ID'],
-                        'AMOUNT' => $stock['AMOUNT']
-                    ];
+        //Logger::log("Начало выполнения addWarehouseStockData()");
+
+        try {
+            $storeProductEntries = [];
+            foreach ($newElementIds as $oldId => $newId) {
+                if (isset($warehouseData[$oldId]) && !empty($warehouseData[$oldId])) {
+                    foreach ($warehouseData[$oldId] as $stock) {
+                        // Используем ID складов напрямую
+                        $storeProductEntries[] = [
+                            'PRODUCT_ID' => $newId,
+                            'STORE_ID' => $stock['STORE_ID'],
+                            'AMOUNT' => $stock['AMOUNT']
+                        ];
+                    }
                 }
             }
-        }
 
-        if (!empty($storeProductEntries)) {
-            $result = StoreProductTable::addMulti($storeProductEntries);
+            if (!empty($storeProductEntries)) {
+                $result = StoreProductTable::addMulti($storeProductEntries);
 
-            if (!$result->isSuccess()) {
-                throw new \Exception("Ошибка при добавлении данных об остатках на складах: " . implode(", ", $result->getErrorMessages()));
+                if (!$result->isSuccess()) {
+                    throw new \Exception("Ошибка при добавлении данных об остатках на складах: " . implode(", ", $result->getErrorMessages()));
+                }
+
+                Logger::log("Данные об остатках на складах успешно добавлены к новым элементам.");
+            } else {
+                Logger::log("Нет данных об остатках на складах для добавления.");
             }
-
-            Logger::log("Данные об остатках на складах успешно добавлены к новым элементам.");
-            flush();
-        } else {
-            Logger::log("Нет данных об остатках на складах для добавления.");
-            flush();
+        } catch (\Exception $e) {
+            Logger::log("Ошибка в addWarehouseStockData(): " . $e->getMessage(), "ERROR");
+            Logger::log("Трассировка: " . $e->getTraceAsString(), "ERROR");
+            throw $e;
         }
     }
 
     /**
-     * Add properties to new elements using addMulti
+     * Добавляет свойства к новым элементам
      */
     protected function addProperties($newElementIds, $propertiesData)
     {
-        $propertyEntries = [];
+        //Logger::log("Начало выполнения addProperties()");
 
-        foreach ($newElementIds as $oldId => $newId) {
-            if (isset($propertiesData[$oldId])) {
-                foreach ($propertiesData[$oldId] as $propertyCode => $values) {
-                    if (!isset($this->targetProperties[$propertyCode])) {
-                        continue; // Skip properties that do not exist in the target IBlock
-                    }
+        try {
+            $propertyEntries = [];
 
-                    $propertyInfo = $this->targetProperties[$propertyCode];
-                    $propertyId = $propertyInfo['ID'];
-                    $propertyType = $propertyInfo['PROPERTY_TYPE'];
-                    $isMultiple = $propertyInfo['MULTIPLE'] === 'Y';
-
-                    // Ensure values are in an array for multiple properties
-                    $values = $isMultiple ? (array) $values : [(is_array($values) ? reset($values) : $values)];
-
-                    foreach ($values as $value) {
-                        $propertyEntry = [
-                            'IBLOCK_PROPERTY_ID' => $propertyId,
-                            'IBLOCK_ELEMENT_ID' => $newId,
-                            'VALUE' => null,
-                            'VALUE_ENUM' => null,
-                            'VALUE_NUM' => null,
-                            'DESCRIPTION' => null,
-                        ];
-
-                        // Set the appropriate value field based on property type
-                        if ($propertyType === 'L') {
-                            $propertyEntry['VALUE_ENUM'] = $value;
-                            $propertyEntry['VALUE'] = $value;
-                        } elseif ($propertyType === 'N') {
-                            $propertyEntry['VALUE_NUM'] = $value;
-                        } else {
-                            $propertyEntry['VALUE'] = $value;
+            foreach ($newElementIds as $oldId => $newId) {
+                if (isset($propertiesData[$oldId])) {
+                    foreach ($propertiesData[$oldId] as $propertyCode => $values) {
+                        if (!isset($this->targetProperties[$propertyCode])) {
+                            continue; // Пропускаем свойства, которых нет в целевом инфоблоке
                         }
 
-                        $propertyEntries[] = $propertyEntry;
+                        $propertyInfo = $this->targetProperties[$propertyCode];
+                        $propertyId = $propertyInfo['ID'];
+                        $propertyType = $propertyInfo['PROPERTY_TYPE'];
+                        $isMultiple = $propertyInfo['MULTIPLE'] === 'Y';
+
+                        // Убеждаемся, что значения представлены в виде массива для множественных свойств
+                        $values = $isMultiple ? (array) $values : [(is_array($values) ? reset($values) : $values)];
+
+                        foreach ($values as $value) {
+                            $propertyEntry = [
+                                'IBLOCK_PROPERTY_ID' => $propertyId,
+                                'IBLOCK_ELEMENT_ID' => $newId,
+                                'VALUE' => null,
+                                'VALUE_ENUM' => null,
+                                'VALUE_NUM' => null,
+                                'DESCRIPTION' => null,
+                            ];
+
+                            // Устанавливаем соответствующее поле значения в зависимости от типа свойства
+                            if ($propertyType === 'L') {
+                                $propertyEntry['VALUE_ENUM'] = $value;
+                                $propertyEntry['VALUE'] = $value;
+                            } elseif ($propertyType === 'N') {
+                                $propertyEntry['VALUE_NUM'] = $value;
+                            } else {
+                                $propertyEntry['VALUE'] = $value;
+                            }
+
+                            $propertyEntries[] = $propertyEntry;
+                        }
                     }
                 }
             }
-        }
 
-        if (!empty($propertyEntries)) {
+            if (!empty($propertyEntries)) {
+                $result = ElementPropertyTable::addMulti($propertyEntries, true);
 
-            $result = ElementPropertyTable::addMulti($propertyEntries, true);
+                if (!$result->isSuccess()) {
+                    throw new \Exception("Ошибка при добавлении свойств: " . implode(", ", $result->getErrorMessages()));
+                }
 
-            if (!$result->isSuccess()) {
-                throw new \Exception("Error adding properties: " . implode(", ", $result->getErrorMessages()));
+                Logger::log("Значения свойства успешно добавлены к новым элементам.");
+            } else {
+                Logger::log("Нет свойств для добавления.");
             }
-
-            Logger::log("Properties successfully added to new elements.");
-            flush();
-        } else {
-            Logger::log("No properties to add.");
-            flush();
+        } catch (\Exception $e) {
+            Logger::log("Ошибка в addProperties(): " . $e->getMessage(), "ERROR");
+            Logger::log("Трассировка: " . $e->getTraceAsString(), "ERROR");
+            throw $e;
         }
+
     }
 
     /**
-     * Add sections to new elements using addMulti
+     * Добавляет секции к элементам
      */
     protected function addSectionsToElements($newElementIds, $sectionData)
     {
-        $sectionEntries = [];
-        foreach ($newElementIds as $oldId => $newId) {
-            $targetSectionIds = $sectionData[$oldId] ?? [];
-            if (!is_array($targetSectionIds)) {
-                $targetSectionIds = [$targetSectionIds];
+        //Logger::log("Начало выполнения addSectionsToElements()");
+
+        try {
+            $sectionEntries = [];
+            foreach ($newElementIds as $oldId => $newId) {
+                $targetSectionIds = $sectionData[$oldId] ?? [];
+                if (!is_array($targetSectionIds)) {
+                    $targetSectionIds = [$targetSectionIds];
+                }
+
+                foreach ($targetSectionIds as $sectionId) {
+                    $sectionEntries[] = [
+                        'IBLOCK_ELEMENT_ID' => $newId,
+                        'IBLOCK_SECTION_ID' => $sectionId,
+                    ];
+                }
             }
 
-            foreach ($targetSectionIds as $sectionId) {
-                $sectionEntries[] = [
-                    'IBLOCK_ELEMENT_ID' => $newId,
-                    'IBLOCK_SECTION_ID' => $sectionId,
-                ];
-            }
-        }
+            if (!empty($sectionEntries)) {
+                $result = SectionElementTable::addMulti($sectionEntries, true);
 
-        if (!empty($sectionEntries)) {
-            $result = SectionElementTable::addMulti($sectionEntries, true);
-
-            if ($result->isSuccess()) {
-                Logger::log("Sections successfully added to new elements.");
+                if ($result->isSuccess()) {
+                    Logger::log("Привязка к разделам успешно добавлены к новым элементам.");
+                } else {
+                    throw new \Exception("Ошибка при добавлении привязки к разделам: " . implode(", ", $result->getErrorMessages()));
+                }
             } else {
-                Logger::log("Error adding sections: " . implode(", ", $result->getErrorMessages()) . "");
+                Logger::log("Нет данных для добавления привязки к разделам.");
             }
-
-            flush();
-        } else {
-            Logger::log("No data for adding sections.");
-            flush();
+        } catch (\Exception $e) {
+            Logger::log("Ошибка в addSectionsToElements(): " . $e->getMessage(), "ERROR");
+            Logger::log("Трассировка: " . $e->getTraceAsString(), "ERROR");
+            throw $e;
         }
+
     }
 
     /**
-     * Add prices to new elements
+     * Добавляет цены к новым элементам
      */
     protected function addPrices($newElementIds, $priceData)
     {
-        $priceEntries = [];
-        foreach ($newElementIds as $oldId => $newId) {
-            $priceEntry = $priceData[$oldId];
-            $priceEntry['PRODUCT_ID'] = $newId;
-            $priceEntry['CATALOG_GROUP_ID'] = $this->priceGroupId;
+        //Logger::log("Начало выполнения addPrices()");
 
-            // Convert price to base currency for PRICE_SCALE
-            $baseCurrency = CurrencyManager::getBaseCurrency();
+        try {
+            $priceEntries = [];
+            foreach ($newElementIds as $oldId => $newId) {
+                $priceEntry = $priceData[$oldId];
+                $priceEntry['PRODUCT_ID'] = $newId;
+                $priceEntry['CATALOG_GROUP_ID'] = $this->priceGroupId;
 
-            if ($priceEntry['CURRENCY'] != $baseCurrency) {
-                $priceEntry['PRICE_SCALE'] = \CCurrencyRates::ConvertCurrency($priceEntry['PRICE'], $priceEntry['CURRENCY'], $baseCurrency);
-            } else {
-                $priceEntry['PRICE_SCALE'] = $priceEntry['PRICE'];
+                // Конвертируем цену в базовую валюту для PRICE_SCALE
+                $baseCurrency = CurrencyManager::getBaseCurrency();
+
+                if ($priceEntry['CURRENCY'] != $baseCurrency) {
+                    $priceEntry['PRICE_SCALE'] = \CCurrencyRates::ConvertCurrency($priceEntry['PRICE'], $priceEntry['CURRENCY'], $baseCurrency);
+                } else {
+                    $priceEntry['PRICE_SCALE'] = $priceEntry['PRICE'];
+                }
+
+                $priceEntries[] = $priceEntry;
             }
 
-            $priceEntries[] = $priceEntry;
+            $result = PriceTable::addMulti($priceEntries);
+
+            if (!$result->isSuccess()) {
+                throw new \Exception("Ошибка при добавлении цен: " . implode(", ", $result->getErrorMessages()));
+            }
+
+            Logger::log("Цены успешно добавлены к новым элементам.");
+        } catch (\Exception $e) {
+            Logger::log("Ошибка в addPrices(): " . $e->getMessage(), "ERROR");
+            Logger::log("Трассировка: " . $e->getTraceAsString(), "ERROR");
+            throw $e;
         }
 
-        $result = \Bitrix\Catalog\PriceTable::addMulti($priceEntries);
-
-        if (!$result->isSuccess()) {
-            throw new \Exception("Error adding prices: " . implode(", ", $result->getErrorMessages()));
-        }
-
-        Logger::log("Prices successfully added to new elements.");
-        flush();
     }
 
     /**
-     * Add product data to new elements
+     * Добавляет данные о продуктах к новым элементам
      */
     protected function addProductData($newElementIds, $productData, $productType)
     {
-        $productEntries = [];
-        foreach ($newElementIds as $oldId => $newId) {
-            $productEntry = $productData[$oldId];
-            $productEntry['ID'] = $newId;
-            $productEntry['TYPE'] = $productType;
-            $productEntry['AVAILABLE'] = 'Y';
-            $productEntries[] = $productEntry;
+        //Logger::log("Начало выполнения addProductData()");
+
+        try {
+            $productEntries = [];
+            foreach ($newElementIds as $oldId => $newId) {
+                $productEntry = $productData[$oldId];
+                $productEntry['ID'] = $newId;
+                $productEntry['TYPE'] = $productType;
+                $productEntry['AVAILABLE'] = 'Y';
+                $productEntries[] = $productEntry;
+            }
+
+            $result = ProductTable::addMulti($productEntries);
+
+            if (!$result->isSuccess()) {
+                throw new \Exception("Ошибка при добавлении данных о количестве продукта: " . implode(", ", $result->getErrorMessages()));
+            }
+
+            Logger::log("Данные о количестве продукта успешно добавлены к новым элементам.");
+        } catch (\Exception $e) {
+            Logger::log("Ошибка в addProductData(): " . $e->getMessage(), "ERROR");
+            Logger::log("Трассировка: " . $e->getTraceAsString(), "ERROR");
+            throw $e;
         }
 
-        $result = \Bitrix\Catalog\ProductTable::addMulti($productEntries);
-
-        if (!$result->isSuccess()) {
-            throw new \Exception("Error adding product data: " . implode(", ", $result->getErrorMessages()));
-        }
-
-        Logger::log("Product data successfully added to new elements.");
-        flush();
     }
 
     /**
-     * Get target section IDs for an element
+     * Получает целевые ID разделов для элемента
      */
     protected function getTargetSectionIdsForElement($oldElementId, $newModuleData)
     {
-        foreach ($newModuleData as $dataItem) {
-            if ($dataItem['ELEMENT_ID'] == $oldElementId) {
-                $sectionIds = $dataItem['TARGET_SECTION_ID'];
-                if (!is_array($sectionIds)) {
-                    $sectionIds = [$sectionIds];
-                }
-                return $sectionIds;
-            }
-        }
+        //Logger::log("Получение целевых ID разделов для элемента ID: {$oldElementId}");
 
-        return [];
+        try {
+            foreach ($newModuleData as $dataItem) {
+                if ($dataItem['ELEMENT_ID'] == $oldElementId) {
+                    $sectionIds = $dataItem['TARGET_SECTION_ID'];
+                    if (!is_array($sectionIds)) {
+                        $sectionIds = [$sectionIds];
+                    }
+                    //Logger::log("Найдены целевые разделы: " . implode(', ', $sectionIds));
+                    return $sectionIds;
+                }
+            }
+            //Logger::log("Целевые разделы не найдены для элемента ID: {$oldElementId}");
+            return [];
+        } catch (\Exception $e) {
+            Logger::log("Ошибка в getTargetSectionIdsForElement(): " . $e->getMessage(), "ERROR");
+            throw $e;
+        } 
     }
 
     /**
-     * Process properties of an element
+     * Обрабатывает свойства элемента
      */
     protected function processProperties($properties, $elementId)
     {
-        $propertiesData = [];
+        //Logger::log("Начало обработки свойств для элемента ID: {$elementId}");
 
-        foreach ($properties as $property) {
-            $propertyCode = $property['CODE'];
-            $isMultiple = $property['MULTIPLE'] === 'Y';
-            $propertyType = $property['PROPERTY_TYPE'];
-            $userType = $property['USER_TYPE'];
+        try {
+            $propertiesData = [];
 
-            if (!isset($this->targetProperties[$propertyCode])) {
-                continue;
-            }
+            foreach ($properties as $property) {
+                $propertyCode = $property['CODE'];
+                $isMultiple = $property['MULTIPLE'] === 'Y';
+                $propertyType = $property['PROPERTY_TYPE'];
+                $userType = $property['USER_TYPE'];
 
-            $value = null;
-            if ($propertyType === 'L') {
-                // Map list value
-                $sourceEnumId = $property['VALUE_ENUM'];
-                $value = $this->enumMapping[$sourceEnumId] ?? null;
-            } elseif ($userType === 'directory') {
-                // "Directory" type properties
-                $value = $property['VALUE'];
-            } elseif ($propertyType === 'F') {
-                // "File" type properties
-                $fileId = $property['VALUE'];
-                $fileArray = \CFile::MakeFileArray($fileId);
-                if ($fileArray) {
-                    $newFileId = \CFile::SaveFile($fileArray, "iblock");
-                    $value = $newFileId;
+                if (!isset($this->targetProperties[$propertyCode])) {
+                    continue;
                 }
-            } elseif ($propertyType === 'E') {
-                // "Link to element" type properties
-                $value = $this->getNewElementIdByOldId($property['VALUE']);
-            } elseif ($propertyType === 'S' || $propertyType === 'N') {
-                $value = $property['VALUE'] ?: $property['VALUE_NUM'];
-            } else {
-                // Other property types
-                $value = $property['VALUE'];
-            }
 
-            if ($value !== null) {
-                if ($isMultiple) {
-                    $propertiesData[$propertyCode][] = $value;
+                $value = null;
+                if ($propertyType === 'L') {
+                    // Сопоставляем значения списков
+                    $sourceEnumId = $property['VALUE_ENUM'];
+                    $value = $this->enumMapping[$sourceEnumId] ?? null;
+                } elseif ($userType === 'directory') {
+                    // Свойства типа "справочник"
+                    $value = $property['VALUE'];
+                } elseif ($propertyType === 'F') {
+                    // Свойства типа "файл"
+                    $fileId = $property['VALUE'];
+                    $fileArray = \CFile::MakeFileArray($fileId);
+                    if ($fileArray) {
+                        $newFileId = \CFile::SaveFile($fileArray, "iblock");
+                        $value = $newFileId;
+                    }
+                } elseif ($propertyType === 'E') {
+                    // Свойства типа "привязка к элементу"
+                    $value = $this->getNewElementIdByOldId($property['VALUE']);
+                } elseif ($propertyType === 'S' || $propertyType === 'N') {
+                    $value = $property['VALUE'] ?: $property['VALUE_NUM'];
                 } else {
-                    $propertiesData[$propertyCode] = $value;
+                    // Другие типы свойств
+                    $value = $property['VALUE'];
+                }
+
+                if ($value !== null) {
+                    if ($isMultiple) {
+                        $propertiesData[$propertyCode][] = $value;
+                    } else {
+                        $propertiesData[$propertyCode] = $value;
+                    }
                 }
             }
+
+            //Logger::log("Обработка свойств для элемента ID: {$elementId} завершена");
+            return $propertiesData;
+        } catch (\Exception $e) {
+            Logger::log("Ошибка в processProperties(): " . $e->getMessage(), "ERROR");
+            throw $e;
         }
-        return $propertiesData;
     }
 
     /**
-     * Get enum mapping between source and target IBlocks
+     * Получает сопоставление значений свойств типа "список" между исходным и целевым инфоблоками
      */
     protected function getEnumMapping()
     {
-        // Get property codes of "List" type from source IBlock
-        $propertyCodes = PropertyTable::getList([
-            'filter' => [
-                'IBLOCK_ID' => $this->sourceIblockId,
-                'PROPERTY_TYPE' => 'L'
-            ],
-            'select' => ['CODE']
-        ])->fetchAll();
+       // Logger::log("Начало получения сопоставления значений свойств типа 'список'");
 
-        $propertyCodes = array_column($propertyCodes, 'CODE');
+        try {
+            // Получаем коды свойств типа "список" из исходного инфоблока
+            $propertyCodes = PropertyTable::getList([
+                'filter' => [
+                    'IBLOCK_ID' => $this->sourceIblockId,
+                    'PROPERTY_TYPE' => 'L'
+                ],
+                'select' => ['CODE']
+            ])->fetchAll();
 
-        // Get enum values from both IBlocks
-        $enums = PropertyEnumerationTable::getList([
-            'filter' => [
-                'PROPERTY.IBLOCK_ID' => [$this->sourceIblockId, $this->targetIblockId],
-                'PROPERTY.CODE' => $propertyCodes
-            ],
-            'select' => ['ID', 'PROPERTY_ID', 'VALUE', 'XML_ID', 'PROPERTY_CODE' => 'PROPERTY.CODE', 'IBLOCK_ID' => 'PROPERTY.IBLOCK_ID'],
-            'runtime' => [
-                new \Bitrix\Main\Entity\ReferenceField(
-                    'PROPERTY',
-                    PropertyTable::getEntity(),
-                    ['=this.PROPERTY_ID' => 'ref.ID'],
-                    ['join_type' => 'INNER']
-                )
-            ]
-        ])->fetchAll();
+            $propertyCodes = array_column($propertyCodes, 'CODE');
 
-        // Group enums by property code and IBlock
-        $sourceEnums = [];
-        $targetEnums = [];
-        foreach ($enums as $enum) {
-            if ($enum['IBLOCK_ID'] == $this->sourceIblockId) {
-                $sourceEnums[$enum['PROPERTY_CODE']][] = $enum;
-            } else {
-                $targetEnums[$enum['PROPERTY_CODE']][] = $enum;
+            // Получаем значения списков из обоих инфоблоков
+            $enums = PropertyEnumerationTable::getList([
+                'filter' => [
+                    'PROPERTY.IBLOCK_ID' => [$this->sourceIblockId, $this->targetIblockId],
+                    'PROPERTY.CODE' => $propertyCodes
+                ],
+                'select' => ['ID', 'PROPERTY_ID', 'VALUE', 'XML_ID', 'PROPERTY_CODE' => 'PROPERTY.CODE', 'IBLOCK_ID' => 'PROPERTY.IBLOCK_ID'],
+                'runtime' => [
+                    new \Bitrix\Main\Entity\ReferenceField(
+                        'PROPERTY',
+                        PropertyTable::getEntity(),
+                        ['=this.PROPERTY_ID' => 'ref.ID'],
+                        ['join_type' => 'INNER']
+                    )
+                ]
+            ])->fetchAll();
+
+            // Группируем значения по коду свойства и инфоблоку
+            $sourceEnums = [];
+            $targetEnums = [];
+            foreach ($enums as $enum) {
+                if ($enum['IBLOCK_ID'] == $this->sourceIblockId) {
+                    $sourceEnums[$enum['PROPERTY_CODE']][] = $enum;
+                } else {
+                    $targetEnums[$enum['PROPERTY_CODE']][] = $enum;
+                }
             }
-        }
 
-        // Map values
-        $mapping = [];
-        foreach ($sourceEnums as $propertyCode => $sourcePropertyEnums) {
-            if (isset($targetEnums[$propertyCode])) {
-                $targetPropertyEnums = $targetEnums[$propertyCode];
-                foreach ($sourcePropertyEnums as $sourceEnum) {
-                    foreach ($targetPropertyEnums as $targetEnum) {
-                        if ($sourceEnum['VALUE'] == $targetEnum['VALUE']) {
-                            $mapping[$sourceEnum['ID']] = $targetEnum['ID'];
-                            break;
+            // Сопоставляем значения
+            $mapping = [];
+            foreach ($sourceEnums as $propertyCode => $sourcePropertyEnums) {
+                if (isset($targetEnums[$propertyCode])) {
+                    $targetPropertyEnums = $targetEnums[$propertyCode];
+                    foreach ($sourcePropertyEnums as $sourceEnum) {
+                        foreach ($targetPropertyEnums as $targetEnum) {
+                            if ($sourceEnum['VALUE'] == $targetEnum['VALUE']) {
+                                $mapping[$sourceEnum['ID']] = $targetEnum['ID'];
+                                break;
+                            }
                         }
                     }
                 }
             }
+
+            //Logger::log("Сопоставление значений свойств типа 'список' завершено");
+            return $mapping;
+        } catch (\Exception $e) {
+            Logger::log("Ошибка в getEnumMapping(): " . $e->getMessage(), "ERROR");
+            throw $e;
         }
-
-        Logger::log("Enum mapping completed.<br>");
-        flush();
-
-        return $mapping;
     }
 
     /**
-     * Get new element ID by old ID for "E" type properties
+     * Получает новый ID элемента по старому ID для свойств типа "E"
      */
     protected function getNewElementIdByOldId($oldId)
     {
-        // Implement logic to map old IDs to new IDs if copying linked elements
-        return $oldId; // For now, return old ID
+        // Этот метод может быть реализован по мере необходимости.
+        //Logger::log("Вызов getNewElementIdByOldId() для старого ID: {$oldId}");
+        return $oldId; // Пока возвращаем старый ID
     }
 
     /**
-     * Get target IBlock properties
+     * Получает свойства целевого инфоблока
      */
     protected function getTargetProperties()
     {
-        $propertyList = PropertyTable::getList([
-            'filter' => ['IBLOCK_ID' => $this->targetIblockId],
-            'select' => ['ID', 'CODE', 'PROPERTY_TYPE', 'USER_TYPE', 'MULTIPLE'],
-        ]);
+        //Logger::log("Начало получения свойств целевого инфоблока");
 
-        $properties = [];
-        while ($property = $propertyList->fetch()) {
-            $properties[$property['CODE']] = $property;
+        try {
+            $propertyList = PropertyTable::getList([
+                'filter' => ['IBLOCK_ID' => $this->targetIblockId],
+                'select' => ['ID', 'CODE', 'PROPERTY_TYPE', 'USER_TYPE', 'MULTIPLE'],
+            ]);
+
+            $properties = [];
+            while ($property = $propertyList->fetch()) {
+                $properties[$property['CODE']] = $property;
+            }
+
+            //Logger::log("Получено свойств целевого инфоблока: " . count($properties));
+            return $properties;
+        } catch (\Exception $e) {
+            Logger::log("Ошибка в getTargetProperties(): " . $e->getMessage(), "ERROR");
+            throw $e;
         }
-
-        return $properties;
     }
 }
