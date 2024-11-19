@@ -144,3 +144,198 @@ form button[onclick^="add"]:hover {
     max-width: 396px;
     width: 100%;
 }
+
+/* Стили для контейнера логов */
+.log-files {
+    margin-top: 20px;
+}
+
+/* Стили для каждого лог-файла */
+.log-file {
+    border: 1px solid #ddd;
+    margin-bottom: 15px;
+    border-radius: 5px;
+    overflow: hidden;
+    background-color: #fff;
+}
+
+/* Стили для заголовка лог-файла */
+.log-header {
+    background-color: #f5f5f5;
+    padding: 15px 20px;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.log-header h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: bold;
+    color: #333;
+}
+
+.log-header:hover {
+    background-color: #e9e9e9;
+}
+
+/* Стили для действий (Скачать, Удалить) */
+.log-actions a {
+    color: #007bff;
+    text-decoration: none;
+    margin-left: 10px;
+    font-size: 14px;
+}
+
+.log-actions a:hover {
+    text-decoration: underline;
+}
+
+/* Стили для контента лог-файла */
+.log-content {
+    display: none;
+    padding: 15px 20px;
+    background-color: #fdfdfd;
+    font-family: Consolas, Monaco, 'Courier New', monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #555;
+    border-top: 1px solid #ddd;
+}
+
+/* Показать контент при открытии */
+.log-file.open .log-content {
+    display: block;
+}
+
+/* Стили для фильтра */
+#filter-form {
+    background-color: #f9f9f9;
+    padding: 20px;
+    border: 1px solid #ddd;
+    margin-bottom: 20px;
+    border-radius: 5px;
+}
+
+#filter-form fieldset {
+    border: none;
+    margin-bottom: 15px;
+}
+
+#filter-form legend {
+    font-weight: bold;
+    margin-bottom: 10px;
+    color: #333;
+}
+
+#filter-form label {
+    margin-right: 15px;
+    font-size: 14px;
+    color: #555;
+}
+
+#filter-form select {
+    padding: 5px;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+}
+
+#apply-filter-button {
+    background-color: #28a745;
+    border: none;
+    color: white;
+    padding: 8px 16px;
+    font-size: 14px;
+    cursor: pointer;
+    border-radius: 4px;
+}
+
+#apply-filter-button:hover {
+    background-color: #218838;
+}
+
+/* Стили для таблицы */
+#data-table table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 20px;
+    background-color: #fff;
+}
+
+#data-table th,
+#data-table td {
+    border: 1px solid #ddd;
+    padding: 10px;
+    text-align: left;
+    font-size: 14px;
+    color: #333;
+}
+
+#data-table th {
+    background-color: #f2f2f2;
+    font-weight: bold;
+}
+
+#data-table tr:nth-child(even) {
+    background-color: #fafafa;
+}
+
+#data-table tr:hover {
+    background-color: #f1f1f1;
+}
+
+.sort-link {
+    color: #007bff;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.sort-link:hover {
+    text-decoration: underline;
+}
+
+/* Стили для пагинации */
+.pagination {
+    margin-top: 15px;
+    text-align: center;
+}
+
+.pagination a,
+.pagination strong {
+    display: inline-block;
+    padding: 8px 12px;
+    margin: 0 3px;
+    border: 1px solid #ddd;
+    text-decoration: none;
+    color: #333;
+    border-radius: 4px;
+}
+
+.pagination a:hover {
+    background-color: #f2f2f2;
+}
+
+.pagination strong {
+    background-color: #007bff;
+    color: #fff;
+    border-color: #007bff;
+}
+
+.section-select [data-level="0"] {
+    background-color: #ff00003d;
+}
+
+.section-select [data-level="1"] {
+    background-color: #0097ff3b;
+}
+
+.section-select [data-level="2"] {
+    background-color: #f7ff0036;
+}
+
+
+select option:checked {
+    background-color: rgb(206, 206, 206)!important; /* Серый */
+    color: rgb(16, 16, 16); /* Темный текст */
+}

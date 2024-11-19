@@ -72,6 +72,12 @@ class TradeOfferSorter
     private function nameMatches($baseWords, $compareWords, $totalMatches)
     {
         try {
+            // var_dump($totalMatches);
+            // echo "<br>";
+            count($baseWords);
+
+            count($compareWords);
+
             if (count($baseWords) < $totalMatches || count($compareWords) < $totalMatches) {
                 return false;
             }
@@ -133,13 +139,10 @@ class TradeOfferSorter
     private function findChainElements($importMappings)
     {
         try {
-            //Logger::log("Начало findChainElements()");
-
             $chainTogezerId = 1;
             $updateCollection = [];
 
             foreach ($importMappings as $importMapping) {
-                //Logger::log("Обработка importMapping для SECTION_ID = {$importMapping['SECTION_ID']}");
                 $collection = $this->getSourceFilteredCollection($importMapping["SECTION_ID"]);
 
                 $elements = [];
@@ -149,13 +152,15 @@ class TradeOfferSorter
                 }
 
                 foreach ($elements as $targetSectionId => $sectionElements) {
-                    //Logger::log("Обработка элементов для TARGET_SECTION_ID = {$targetSectionId}");
                     if (!empty($importMapping["PROPERTIES"])) {
                         $propertyCode = reset($importMapping["PROPERTIES"])["CODE"];
                         $sectionElements = array_filter($sectionElements, function ($element) use ($propertyCode) {
                             return !empty($element[$propertyCode]);
                         });
                     }
+
+                    // Reindex the array to ensure sequential numeric keys
+                    $sectionElements = array_values($sectionElements);
 
                     $linkedGroups = $this->findLinkedElements($sectionElements, $importMapping);
 
@@ -166,7 +171,6 @@ class TradeOfferSorter
                                 'CHAIN_TOGEZER' => $chainTogezerId
                             ];
                         }
-                        //Logger::log("Найдена связанная группа с CHAIN_TOGEZER = {$chainTogezerId}");
                         $chainTogezerId++;
                     }
                 }
@@ -191,6 +195,8 @@ class TradeOfferSorter
             $linkedElements = [];
             $processedElements = [];
 
+            $elements = array_values($elements);
+
             foreach ($elements as $i => $element1) {
                 if (in_array($element1["ID"], $processedElements)) {
                     continue;
@@ -206,7 +212,7 @@ class TradeOfferSorter
                     }
 
                     $totalMatchesOk = ($importMapping["TOTAL_MATCHES"] === 0) ||
-                                      $this->nameMatches($element1['NAME_WORDS'], $element2['NAME_WORDS'], $importMapping["TOTAL_MATCHES"]);
+                        $this->nameMatches($element1['NAME_WORDS'], $element2['NAME_WORDS'], $importMapping["TOTAL_MATCHES"]);
 
                     $propertiesOk = !empty($importMapping["PROPERTIES"]);
                     if ($propertiesOk) {
@@ -246,7 +252,7 @@ class TradeOfferSorter
     private function updateChainTogezer($updateCollection)
     {
         //Logger::log("Начало добавления связей для торговых предложений: updateChainTogezer()");
-       // $startTime = microtime(true);
+        // $startTime = microtime(true);
 
         try {
             $connection = Application::getConnection();
@@ -275,7 +281,7 @@ class TradeOfferSorter
         }
 
         //$endTime = microtime(true);
-       // $executionTime = round($endTime - $startTime, 3);
-       // Logger::log("Завершение сортировки торговых предложений: updateChainTogezer(). Время выполнения: {$executionTime} сек");
+        // $executionTime = round($endTime - $startTime, 3);
+        // Logger::log("Завершение сортировки торговых предложений: updateChainTogezer(). Время выполнения: {$executionTime} сек");
     }
 }

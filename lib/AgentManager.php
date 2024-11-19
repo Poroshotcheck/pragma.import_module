@@ -7,7 +7,22 @@ use Bitrix\Main\Config\Option;
 
 class AgentManager
 {
-    private static $moduleId = PRAGMA_IMPORT_MODULE_ID;
+    private $moduleId;
+
+    public function __construct()
+    {
+        $this->moduleId = self::getModuleVersionData()['MODULE_ID'];
+    }
+
+    private static function getModuleVersionData()
+    {
+        static $arModuleVersion = null;
+        if ($arModuleVersion === null) {
+            $arModuleVersion = [];
+            include __DIR__ . '/../install/version.php';
+        }
+        return $arModuleVersion;
+    }
 
     public function createAgent($agentClass, $interval, $nextExec, $active = false)
     {
@@ -15,7 +30,7 @@ class AgentManager
             $agentName = $this->getAgentName($agentClass);
             $agentId = \CAgent::AddAgent(
                 "\\" . $agentClass . "::run();",
-                self::$moduleId,
+                $this->moduleId,
                 "N",
                 $interval,
                 "",
@@ -25,7 +40,7 @@ class AgentManager
             );
 
             if ($agentId) {
-                Option::set(self::$moduleId, $agentName . "_ID", $agentId);
+                Option::set($this->moduleId, $agentName . "_ID", $agentId);
                 if (!$active) {
                     $this->deactivateAgent($agentId);
                 }
@@ -62,7 +77,7 @@ class AgentManager
         try {
             if (\CAgent::Delete($agentId)) {
                 $agentName = $this->getAgentNameById($agentId);
-                Option::delete(self::$moduleId, ["name" => $agentName . "_ID"]);
+                Option::delete($this->moduleId, ["name" => $agentName . "_ID"]);
                 // Logger::log("Агент " . $agentName . " (ID: " . $agentId . ") удален");
                 return true;
             } else {
@@ -120,7 +135,7 @@ class AgentManager
     public function getAgentIdByName($agentName)
     {
         try {
-            return Option::get(self::$moduleId, $agentName . "_ID", 0);
+            return Option::get($this->moduleId, $agentName . "_ID", 0);
         } catch (\Exception $e) {
             Logger::log("Исключение в getAgentIdByName: " . $e->getMessage(), "ERROR");
             return 0;

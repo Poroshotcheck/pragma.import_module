@@ -29,6 +29,7 @@ class TradeOfferImporter
     protected $enumMapping = []; // Enum mapping
     protected $parentIdsByChain = []; // Mapping of CHAIN_TOGEZER to parent element IDs
     protected $targetProperties = []; // Target IBlock properties
+    protected $pack = 0;
 
     public function __construct($moduleId, $sourceIblockId, $targetIblockId, $targetOffersIblockId, $priceGroupId)
     {
@@ -112,7 +113,8 @@ class TradeOfferImporter
                 $elementsDataByXmlId[$element['XML_ID']] = $element;
             }
 
-            // Обновляем существующие
+            Logger::log("Обнавляем существующие элементы");
+            
             if (!empty($existingElements['offers'])) {
                 $productUpdater->updateExistingElements($existingElements['offers'], $elementsDataByXmlId);
             }
@@ -265,6 +267,12 @@ class TradeOfferImporter
             foreach ($targetElements as $element) {
                 $existingTargets[$element['XML_ID']] = $element['ID'];
             }
+
+            $this->pack++;
+            Logger::log("Обработка " . $this->pack . " пачки связанных элементов");
+            Logger::log("Найдено " . count($existingParents) . " существующих родителей в целевом инфоблоке");
+            Logger::log("Найдено " . count($existingTargets) . " существующих элементов в целевом инфоблоке");
+            Logger::log("Найдено " . count($existingOffers) . " существующих элементов в инфоблоке торговых предложений");
 
             return [
                 'offers' => $existingOffers,

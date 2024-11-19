@@ -2,6 +2,7 @@
 require_once($_SERVER["DOCUMENT_ROOT"] . "/local/modules/pragma.importmodule/lib/AgentManager.php");
 require_once($_SERVER["DOCUMENT_ROOT"] . "/local/modules/pragma.importmodule/lib/Logger.php");
 require_once($_SERVER["DOCUMENT_ROOT"] . "/local/modules/pragma.importmodule/lib/ModuleDataTable.php");
+require_once($_SERVER["DOCUMENT_ROOT"] . "/local/modules/pragma.importmodule/lib/EventHandlers.php");
 
 use Bitrix\Main\ModuleManager;
 use Bitrix\Main\Config\Option;
@@ -44,7 +45,7 @@ class pragma_importmodule extends CModule
 
         // Create agents
         $agentManager = new AgentManager();
-        $agentManager->createAgent(CheckAgent::class, 300, date("d.m.Y H:i:s"), false);
+        $agentManager->createAgent(CheckAgent::class, 300, date("d.m.Y H:i:s"), true);
         $agentManager->createAgent(ImportAgent::class, 86400, date("d.m.Y H:i:s", time() + 86400), false);
 
         // Highload block creation/check
@@ -198,39 +199,61 @@ class pragma_importmodule extends CModule
 
     public function InstallEvents()
     {
-        EventManager::getInstance()->registerEventHandler(
-            "catalog",
-            "OnBeforeIBlockImport1C",
-            $this->MODULE_ID,
-            "Pragma\\ImportModule\\EventHandlers",
-            "onBeforeCatalogImport1CHandler"
+        $eventManager = EventManager::getInstance();
+        $moduleId = $this->MODULE_ID;
+
+        $eventManager->registerEventHandler(
+            'catalog',
+            'OnBeforeCatalogImport1C',
+            $moduleId,
+            '\\Pragma\\ImportModule\\EventHandlers',
+            'onBeforeCatalogImport1CHandler'
         );
 
-        EventManager::getInstance()->registerEventHandler(
-            "catalog",
-            "OnSuccessCatalogImport1C",
-            $this->MODULE_ID,
-            "Pragma\\ImportModule\\EventHandlers",
-            "onSuccessCatalogImport1CHandler"
+        $eventManager->registerEventHandler(
+            'catalog',
+            'OnSuccessCatalogImport1C',
+            $moduleId,
+            '\\Pragma\\ImportModule\\EventHandlers',
+            'onSuccessCatalogImport1CHandler'
+        );
+
+        $eventManager->registerEventHandler(
+            'catalog',
+            'OnCompleteCatalogImport1C',
+            $moduleId,
+            '\\Pragma\\ImportModule\\EventHandlers',
+            'onCompleteCatalogImport1CHandler'
         );
     }
 
     public function UnInstallEvents()
     {
-        EventManager::getInstance()->unRegisterEventHandler(
-            "catalog",
-            "OnBeforeIBlockImport1C",
-            $this->MODULE_ID,
-            "Pragma\\ImportModule\\EventHandlers",
-            "onBeforeCatalogImport1CHandler"
+        $eventManager = EventManager::getInstance();
+        $moduleId = $this->MODULE_ID;
+
+        $eventManager->unRegisterEventHandler(
+            'catalog',
+            'OnBeforeCatalogImport1C',
+            $moduleId,
+            '\\Pragma\\ImportModule\\EventHandlers',
+            'onBeforeCatalogImport1CHandler'
         );
 
-        EventManager::getInstance()->unRegisterEventHandler(
-            "catalog",
-            "OnSuccessCatalogImport1C",
-            $this->MODULE_ID,
-            "Pragma\\ImportModule\\EventHandlers",
-            "onSuccessCatalogImport1CHandler"
+        $eventManager->unRegisterEventHandler(
+            'catalog',
+            'OnSuccessCatalogImport1C',
+            $moduleId,
+            '\\Pragma\\ImportModule\\EventHandlers',
+            'onSuccessCatalogImport1CHandler'
+        );
+
+        $eventManager->unRegisterEventHandler(
+            'catalog',
+            'OnCompleteCatalogImport1C',
+            $moduleId,
+            '\\Pragma\\ImportModule\\EventHandlers',
+            'onCompleteCatalogImport1CHandler'
         );
     }
 }

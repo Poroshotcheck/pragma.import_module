@@ -100,58 +100,50 @@ class SizeMatcher
 
     public function matchSizes()
     {
-        //Logger::log("Начало сопоставления размеров в matchSizes()");
-
         try {
             foreach ($this->elements as $element) {
-                $normalizedElementSize = $element['NORMALIZED_SIZE'];
+                $elementName = $element['ELEMENT_NAME'];
+                $sizePart = $this->extractSizePart($elementName);
 
-                if (empty($normalizedElementSize)) {
+                // Если размер не найден, пропускаем элемент
+                if (is_null($sizePart) || $sizePart === '') {
                     continue;
                 }
 
-                // Попытка найти точное совпадение в маппинге размеров
-                if (isset($this->sizeMap[$normalizedElementSize])) {
-                    $bestMatch = $this->selectBestMatch($normalizedElementSize, $this->sizeMap[$normalizedElementSize]);
-
-                    if ($bestMatch !== null) {
-                        $this->updateCollection[] = [
-                            'ID' => $element['ID'],
-                            'SIZE_VALUE_ID' => $bestMatch['UF_XML_ID'],
-                        ];
-                        continue;
-                    }
-                }
-
-                // Если нет точного совпадения, попытка найти лучшее частичное совпадение
-                $bestMatch = null;
-                $bestMatchScore = 0;
+                $normalizedElementName = $this->normalizeSize($sizePart);
+                $matchedSizes = [];
 
                 foreach ($this->sizeMap as $normalizedDbSize => $dbSizes) {
                     foreach ($dbSizes as $dbSize) {
-                        $score = $this->calculateMatchScore($normalizedElementSize, $normalizedDbSize);
+                        $sizeName = $dbSize['UF_NAME'];
+                        $normalizedSizeName = $this->normalizeSize($sizeName);
 
-                        if ($score > $bestMatchScore) {
-                            $bestMatchScore = $score;
-                            $bestMatch = $dbSize['UF_XML_ID'];
+                        if (strpos($normalizedElementName, $normalizedSizeName) !== false) {
+                            $matchedSizes[$normalizedSizeName] = $dbSize['UF_XML_ID'];
                         }
                     }
                 }
 
-                if ($bestMatch !== null) {
+                if (!empty($matchedSizes)) {
+                    $bestMatchSize = '';
+                    $bestMatchXmlId = '';
+                    foreach ($matchedSizes as $size => $xmlId) {
+                        if (strlen($size) > strlen($bestMatchSize)) {
+                            $bestMatchSize = $size;
+                            $bestMatchXmlId = $xmlId;
+                        }
+                    }
+
                     $this->updateCollection[] = [
                         'ID' => $element['ID'],
-                        'SIZE_VALUE_ID' => $bestMatch,
+                        'SIZE_VALUE_ID' => $bestMatchXmlId,
                     ];
                 }
             }
-
-            //Logger::log("Сопоставление размеров завершено. Найдено соответствий: " . count($this->updateCollection));
         } catch (\Exception $e) {
             Logger::log("Ошибка в matchSizes(): " . $e->getMessage(), "ERROR");
             throw $e;
         }
-
     }
 
     /**
@@ -301,6 +293,7 @@ class SizeMatcher
     private function extractSizePart($str)
     {
         try {
+            // Попытка разделить строку по основным разделителям
             foreach ($this->mainSeparators as $separator) {
                 $parts = explode($separator, $str);
                 if (count($parts) > 1) {
@@ -308,6 +301,7 @@ class SizeMatcher
                 }
             }
 
+            // Попытка разделить строку по дополнительным разделителям
             foreach ($this->additionalSeparators as $separator) {
                 $parts = explode($separator, $str);
                 if (count($parts) > 1) {
@@ -315,7 +309,8 @@ class SizeMatcher
                 }
             }
 
-            return trim($str);
+            // Если разделители не найдены, возвращаем null
+            return null;
         } catch (\Exception $e) {
             Logger::log("Ошибка в extractSizePart(): " . $e->getMessage(), "ERROR");
             throw $e;
@@ -325,7 +320,7 @@ class SizeMatcher
     public function updateDatabase()
     {
         //Logger::log("Начало обновления базы данных в updateDatabase()");
-       
+
         if (empty($this->updateCollection)) {
             Logger::log("Нет данных для обновления в базе данных.");
             return;

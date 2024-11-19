@@ -1,7 +1,9 @@
 # Игнорируем логи
 /local/modules/pragma.import_module/logs/
+/local/modules/pragma.import_module/data/
 deafalt_option.php
 settings.json
+
 
 # Игнорируем файлы журналов и временные файлы, которые могут создаваться системой
 *.log

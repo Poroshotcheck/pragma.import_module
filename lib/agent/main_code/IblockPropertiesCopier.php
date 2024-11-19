@@ -148,7 +148,7 @@ class IblockPropertiesCopier
             // Копируем свойство в основной целевой инфоблок
             $existingProperty = $this->findExistingProperty($this->destinationIblockId, $property['CODE'], $property['XML_ID']);
             if ($existingProperty) {
-                Logger::log("Свойство {$property['CODE']} уже существует в целевом инфоблоке. Пропускаем обновление.");
+                Logger::log("Свойство {$property['CODE']} уже существует в целевом инфоблоке.");
                 $propertyId = $existingProperty['ID'];
             } else {
                 $propertyId = $destIblockProperty->Add(array_merge($propertyFields, ['IBLOCK_ID' => $this->destinationIblockId]));
@@ -166,11 +166,10 @@ class IblockPropertiesCopier
 
             // Если есть инфоблок торговых предложений, обрабатываем его также
             if ($this->destinationOffersIblockId) {
-                Logger::log("Обработка свойства {$property['CODE']} для инфоблока предложений (ID: {$this->destinationOffersIblockId})");
 
                 $existingOfferProperty = $this->findExistingProperty($this->destinationOffersIblockId, $property['CODE'], $property['XML_ID']);
                 if ($existingOfferProperty) {
-                    Logger::log("Свойство {$property['CODE']} уже существует в инфоблоке предложений. Пропускаем обновление.");
+                    Logger::log("Свойство {$property['CODE']} уже существует в инфоблоке предложений.");
                     $offerPropertyId = $existingOfferProperty['ID'];
                 } else {
                     Logger::log("Создание свойства {$property['CODE']} в инфоблоке предложений.");

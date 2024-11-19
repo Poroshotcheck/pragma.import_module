@@ -27,6 +27,7 @@ class SimpleProductImporter
     protected $priceGroupId;
     protected $enumMapping = [];
     protected $targetProperties = [];
+    protected $pack = 0;
 
     public function __construct($moduleId, $sourceIblockId, $targetIblockId, $targetOffersIblockId, $priceGroupId)
     {
@@ -85,7 +86,8 @@ class SimpleProductImporter
                     $elementsDataByXmlId[$element['XML_ID']] = $element;
                 }
 
-                // Обновляем существующие элементы
+                Logger::log("Обнавляем существующие элементы");
+                
                 if (!empty($existingElements['target'])) {
                     $productUpdater->updateExistingElements($existingElements['target'], $elementsDataByXmlId);
                 }
@@ -200,6 +202,8 @@ class SimpleProductImporter
                 }
             }
 
+            $this->pack++;
+            Logger::log("Обработка " . $this->pack . " пачки не связанных элементов");
             Logger::log("Найдено " . count($existingElementsInTarget) . " существующих элементов в целевом инфоблоке");
             Logger::log("Найдено " . count($existingElementsInOffers) . " существующих элементов в инфоблоке торговых предложений");
         } catch (\Exception $e) {
@@ -797,7 +801,7 @@ class SimpleProductImporter
         } catch (\Exception $e) {
             Logger::log("Ошибка в getTargetSectionIdsForElement(): " . $e->getMessage(), "ERROR");
             throw $e;
-        } 
+        }
     }
 
     /**
@@ -868,7 +872,7 @@ class SimpleProductImporter
      */
     protected function getEnumMapping()
     {
-       // Logger::log("Начало получения сопоставления значений свойств типа 'список'");
+        // Logger::log("Начало получения сопоставления значений свойств типа 'список'");
 
         try {
             // Получаем коды свойств типа "список" из исходного инфоблока

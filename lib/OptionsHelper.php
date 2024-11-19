@@ -8,7 +8,13 @@ use Pragma\ImportModule\Logger;
 
 class OptionsHelper
 {
-    private static $moduleId = PRAGMA_IMPORT_MODULE_ID;
+    //private static $moduleId = PRAGMA_IMPORT_MODULE_ID;
+    private static function getModuleVersionData()
+    {
+        $arModuleVersion = [];
+        include __DIR__ . '/../install/version.php';
+        return $arModuleVersion;
+    }
 
     // Функция для добавления сообщения об ошибке дублирования свойства
     private static function addDuplicatePropertyMessage($property, $sectionId, &$duplicatePropertiesMessage)
@@ -33,41 +39,55 @@ class OptionsHelper
     public static function processSectionMappings(&$sectionMappings, &$duplicatePropertiesMessage)
     {
         try {
-            // Logger::log("Начало обработки сопоставлений разделов");
+            // Logger::log("Starting to process section mappings");
+            $moduleId = self::getModuleVersionData()['MODULE_ID']; 
 
-            // file_put_contents(__DIR__ . "/do.txt", print_r($sectionMappings, true));
-            foreach ($sectionMappings as &$mapping) { // Обратите внимание на & - передача по ссылке
-                if (!empty($mapping['PROPERTIES'])) {
-                    $uniqueProperties = [];
-                    $newProperties = [];
+            $mergedMappings = [];
 
-                    foreach ($mapping['PROPERTIES'] as $property) {
-                        $trimmedProperty = trim($property);
+            foreach ($sectionMappings as $mapping) {
+                // Skip entries without PROPERTIES or with empty PROPERTIES
+                if (empty($mapping['PROPERTIES'])) {
+                    continue;
+                }
 
-                        if ($trimmedProperty === '') {
-                            continue; // Пропускаем пустые свойства
-                        }
+                $sectionId = $mapping['SECTION_ID'];
 
-                        $propertyLower = mb_strtolower($trimmedProperty);
+                if (!isset($mergedMappings[$sectionId])) {
+                    $mergedMappings[$sectionId] = [
+                        'SECTION_ID' => $sectionId,
+                        'PROPERTIES' => [],
+                    ];
+                }
 
-                        if (!in_array($propertyLower, $uniqueProperties)) {
-                            $newProperties[] = $trimmedProperty;
-                            $uniqueProperties[] = $propertyLower;
-                        } else {
-                            self::addDuplicatePropertyMessage($property, $mapping['SECTION_ID'], $duplicatePropertiesMessage);
-                        }
+                foreach ($mapping['PROPERTIES'] as $property) {
+                    $trimmedProperty = trim($property);
+
+                    if ($trimmedProperty === '') {
+                        continue; // Skip empty properties
                     }
 
-                    $mapping['PROPERTIES'] = $newProperties; // Обновляем свойства в исходном массиве
+                    $propertyLower = mb_strtolower($trimmedProperty);
+
+                    // Check for duplicates
+                    $existingPropertiesLower = array_map('mb_strtolower', $mergedMappings[$sectionId]['PROPERTIES']);
+
+                    if (!in_array($propertyLower, $existingPropertiesLower)) {
+                        $mergedMappings[$sectionId]['PROPERTIES'][] = $trimmedProperty;
+                    } else {
+                        self::addDuplicatePropertyMessage($property, $sectionId, $duplicatePropertiesMessage);
+                    }
                 }
             }
-            // file_put_contents(__DIR__ . "/posle.txt", print_r($sectionMappings, true));
-            Option::set(self::$moduleId, "SECTION_MAPPINGS", serialize($sectionMappings));
 
-            // Logger::log("Обработка сопоставлений разделов завершена");
+            // Re-index the array to ensure it's sequential
+            $sectionMappings = array_values($mergedMappings);
+
+            Option::set($moduleId, "SECTION_MAPPINGS", serialize($sectionMappings));
+
+            // Logger::log("Section mappings processing completed");
 
         } catch (\Exception $e) {
-            Logger::log("Ошибка в processSectionMappings: " . $e->getMessage(), "ERROR");
+            Logger::log("Error in processSectionMappings: " . $e->getMessage(), "ERROR");
         }
     }
 
@@ -75,6 +95,7 @@ class OptionsHelper
     {
         try {
             // Logger::log("Начало обработки сопоставлений импорта");
+            $moduleId = self::getModuleVersionData()['MODULE_ID']; 
 
             $uniqueSections = [];
             $newImportMappings = [];
@@ -90,7 +111,7 @@ class OptionsHelper
             }
 
             $importMappings = $newImportMappings;
-            Option::set(self::$moduleId, "IMPORT_MAPPINGS", serialize($importMappings));
+            Option::set($moduleId, "IMPORT_MAPPINGS", serialize($importMappings));
 
             // Logger::log("Обработка сопоставлений импорта завершена");
 

@@ -14,18 +14,23 @@ use Pragma\ImportModule\Agent\MainCode\ColorMatcher;
 use Pragma\ImportModule\Agent\MainCode\SizeMatcher;
 use Pragma\ImportModule\Agent\MainCode\TypeMatcher;
 use Pragma\ImportModule\Agent\MainCode\SimpleProductImporter;
+use Pragma\ImportModule\Agent\MainCode\SingleTradeOfferImporter;
 use Pragma\ImportModule\Agent\MainCode\TradeOfferImporter;
 
 class ImportAgent
 {
     private static $logFile;
 
-    private static function initLogger()
+    private static function initLogger($logFile = null)
     {
-        // Generate a filename with the current date and time
-        $dateTime = date('dmY_Hi'); // Format: ddmmyy_HHMM
-        $logFileName = "agent_{$dateTime}.log";
-        self::$logFile = $_SERVER['DOCUMENT_ROOT'] . "/local/modules/pragma.importmodule/logs/{$logFileName}";
+        if ($logFile !== null) {
+            self::$logFile = $logFile;
+        } else {
+            // Generate a filename with the current date and time
+            $dateTime = date('dmY_Hi'); // Format: ddmmyy_HHMM
+            $logFileName = "agent_{$dateTime}.log";
+            self::$logFile = $_SERVER['DOCUMENT_ROOT'] . "/local/modules/pragma.importmodule/logs/{$logFileName}";
+        }
         Logger::init(self::$logFile);
     }
 
@@ -63,10 +68,13 @@ class ImportAgent
         }
     }
 
-    public static function run()
+    public static function run($logFile = null)
     {
-        self::initLogger();
+        self::initLogger($logFile);
         $startTime = microtime(true);
+        Logger::log("
+===========================================================================================================
+                  ");
         Logger::log("Начало выполнения агента импорта: ImportAgent::run()");
 
         try {
@@ -85,21 +93,30 @@ class ImportAgent
             }
 
             try {
-                // Создаем таблицу для импорта, если ее нет
-                if (!Application::getConnection(ModuleDataTable::getConnectionName())->isTableExists(ModuleDataTable::getTableName())) {
-                    Base::getInstance(ModuleDataTable::class)->createDbTable();
-                    Logger::log("Таблица " . ModuleDataTable::getTableName() . " создана");
-                } else {
-                    //Очищаем таблицу
-                    Application::getConnection()->truncateTable(ModuleDataTable::getTableName());
-                    Logger::log("Таблица " . ModuleDataTable::getTableName() . " очищена");
-                }
+
+                Application::getConnection(ModuleDataTable::getConnectionName())
+                    ->queryExecute('DROP TABLE IF EXISTS ' . ModuleDataTable::getTableName());
+                Logger::log("Таблица " . ModuleDataTable::getTableName() . " удалена");
+
+
+                Application::getConnection(ModuleDataTable::getConnectionName())->isTableExists(ModuleDataTable::getTableName());
+                Base::getInstance(ModuleDataTable::class)->createDbTable();
+                Logger::log("Таблица " . ModuleDataTable::getTableName() . " создана");
+
+                // else {
+                //     //Очищаем таблицу
+                //     Application::getConnection()->truncateTable(ModuleDataTable::getTableName());
+                //     Logger::log("Таблица " . ModuleDataTable::getTableName() . " очищена");
+                // }
             } catch (\Exception $e) {
                 Logger::log("Ошибка при обновлении таблицы: " . $e->getMessage(), "ERROR");
                 throw $e;
             }
 
             // Создание дерева разделов (1 Этап)
+            Logger::log("
+===========================================================================================================
+                    ");
             $sectionStartTime = microtime(true);
             Logger::log("Начало создания дерева разделов");
 
@@ -114,8 +131,10 @@ class ImportAgent
                 throw $e;
             }
 
-
             // Сортировка торговых предложений (2 Этап)
+            Logger::log("
+===========================================================================================================
+                    ");
             $sorterStartTime = microtime(true);
             Logger::log("Начало сортировки торговых предложений");
 
@@ -130,7 +149,10 @@ class ImportAgent
                 throw $e;
             }
 
-            // Сопоставление цветов (4 Этап)
+            // Сопоставление цветов (3 Этап)
+            Logger::log("
+===========================================================================================================
+                    ");
             $colorStartTime = microtime(true);
             Logger::log("Начало сопоставления цветов");
 
@@ -146,7 +168,10 @@ class ImportAgent
                 throw $e;
             }
 
-            // Сопоставление размеров (5 Этап)
+            // Сопоставление размеров (4 Этап)
+            Logger::log("
+===========================================================================================================
+                    ");
             $sizeStartTime = microtime(true);
             Logger::log("Начало сопоставления размеров");
 
@@ -162,7 +187,10 @@ class ImportAgent
                 throw $e;
             }
 
-            // Сопоставление типов (6 Этап)
+            // Сопоставление типов (5 Этап)
+            Logger::log("
+===========================================================================================================
+                    ");
             $typeStartTime = microtime(true);
             Logger::log("Начало сопоставления типов");
 
@@ -179,7 +207,10 @@ class ImportAgent
                 throw $e;
             }
 
-            // Копирование свойств (7 Этап)
+            // Копирование свойств (6 Этап)
+            Logger::log("
+===========================================================================================================
+                    ");
             $targetOffersIblockId = \CCatalogSKU::GetInfoByProductIBlock($destinationIblockId)['IBLOCK_ID'];
             $propertiesStartTime = microtime(true);
             Logger::log("Начало копирования свойств");
@@ -195,22 +226,53 @@ class ImportAgent
                 throw $e;
             }
 
-            // Импорт простых продуктов (8 Этап)
+
+            // Импорт простых продуктов (7 Этап)
+            Logger::log("
+===========================================================================================================
+                    ");
             $importStartTime = microtime(true);
             Logger::log("Начало импорта простых продуктов");
-
-            try {
-                $simpleProductImporter = new SimpleProductImporter($moduleId, $sourceIblockId, $destinationIblockId, $targetOffersIblockId, $basePriceGroupId);
-                $simpleProductImporter->copyElementsFromModuleData(1000); // Размер пачки
-                $importEndTime = microtime(true);
-                $importDuration = self::getExecutionTimeMs($importStartTime, $importEndTime);
-                Logger::log("Завершен импорт простых продуктов. Время выполнения: {$importDuration}");
-            } catch (\Exception $e) {
-                Logger::log("Ошибка при импорте простых продуктов: " . $e->getMessage(), "ERROR");
-                throw $e;
+            //SingleTradeOfferImporter
+            if (Option::get($moduleId, 'TYPE_MODE')) {
+                try {
+                    $singleTradeOfferImporter = new SingleTradeOfferImporter(
+                        $moduleId,
+                        $sourceIblockId,
+                        $destinationIblockId,
+                        $targetOffersIblockId,
+                        $basePriceGroupId
+                    );
+                    $singleTradeOfferImporter->copyElementsFromModuleData(1000); // Размер пачки
+                    $importEndTime = microtime(true);
+                    $importDuration = self::getExecutionTimeMs($importStartTime, $importEndTime);
+                    Logger::log("Завершен импорт товаров с одним торговым предложением. Время выполнения: {$importDuration}");
+                } catch (\Exception $e) {
+                    Logger::log("Ошибка при импорте товаров с одним торговым предложением: " . $e->getMessage(), "ERROR");
+                    throw $e;
+                }
+            } else {
+                try {
+                    $simpleProductImporter = new SimpleProductImporter(
+                        $moduleId,
+                        $sourceIblockId,
+                        $destinationIblockId,
+                        $targetOffersIblockId,
+                        $basePriceGroupId
+                    );
+                    $simpleProductImporter->copyElementsFromModuleData(1000); // Размер пачки
+                    $importEndTime = microtime(true);
+                    $importDuration = self::getExecutionTimeMs($importStartTime, $importEndTime);
+                    Logger::log("Завершен импорт простых продуктов. Время выполнения: {$importDuration}");
+                } catch (\Exception $e) {
+                    Logger::log("Ошибка при импорте простых продуктов: " . $e->getMessage(), "ERROR");
+                    throw $e;
+                }
             }
-
-            // Импорт торговых предложений (9 Этап)
+            // Импорт торговых предложений (8 Этап)
+            Logger::log("
+===========================================================================================================
+                    ");
             $offerImportStartTime = microtime(true);
             Logger::log("Начало импорта торговых предложений");
 
@@ -225,17 +287,10 @@ class ImportAgent
                 throw $e;
             }
 
-            // Удаляем таблицу импорта
-            // try {
-            //     Application::getConnection(ModuleDataTable::getConnectionName())
-            //         ->queryExecute('DROP TABLE IF EXISTS ' . ModuleDataTable::getTableName());
-            //     Logger::log("Таблица " . ModuleDataTable::getTableName() . " удалена");
-            // } catch (\Exception $e) {
-            //     Logger::log("Ошибка при удалении таблицы: " . $e->getMessage(), "ERROR");
-            //     throw $e;
-            // }
-
             Logger::log("Успешное завершение ImportAgent::run()");
+            Logger::log("
+===========================================================================================================
+                       ");
         } catch (\Exception $e) {
             Logger::log("Ошибка в ImportAgent::run(): " . $e->getMessage(), "ERROR");
             Logger::log("Трассировка: " . $e->getTraceAsString(), "ERROR");
@@ -245,7 +300,7 @@ class ImportAgent
         $totalDuration = self::getExecutionTimeMs($startTime, $endTime);
         Logger::log("Общее время выполнения ImportAgent::run(): {$totalDuration}");
 
-        return "Pragma\\ImportModule\\Agent\\ImportAgent::run();";
+        return "\\Pragma\\ImportModule\\Agent\\ImportAgent::run();";
     }
 }
 ?>

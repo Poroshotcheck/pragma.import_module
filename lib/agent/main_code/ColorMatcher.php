@@ -45,7 +45,7 @@ class ColorMatcher
                 ],
             ])->fetchAll();
 
-            Logger::log("Успешно загружено " . count($this->elements) . " элементов.");
+            //Logger::log("Успешно загружено " . count($this->elements) . " элементов.");
         } catch (\Exception $e) {
             Logger::log("Ошибка в loadElements(): " . $e->getMessage(), "ERROR");
             throw $e;
@@ -94,7 +94,7 @@ class ColorMatcher
                 ];
             }
 
-            Logger::log("Успешно загружено " . count($this->colors) . " цветов.");
+            //Logger::log("Успешно загружено " . count($this->colors) . " цветов.");
         } catch (\Exception $e) {
             Logger::log("Ошибка в loadColors(): " . $e->getMessage(), "ERROR");
             throw $e;
@@ -116,7 +116,7 @@ class ColorMatcher
                 }
             }
 
-            Logger::log("Сопоставление цветов завершено. Найдено соответствий: " . count($this->updateCollection));
+            //Logger::log("Сопоставление цветов завершено. Найдено соответствий: " . count($this->updateCollection));
         } catch (\Exception $e) {
             Logger::log("Ошибка в matchColors(): " . $e->getMessage(), "ERROR");
             throw $e;
@@ -178,7 +178,7 @@ class ColorMatcher
             ";
 
             $connection->queryExecute($updateSql);
-            Logger::log("Успешно обновлено " . count($this->updateCollection) . " записей в базе данных.");
+            //Logger::log("Успешно обновлено " . count($this->updateCollection) . " записей в базе данных.");
         } catch (\Exception $e) {
             Logger::log("Ошибка в updateDatabase(): " . $e->getMessage(), "ERROR");
             throw $e;

@@ -2,11 +2,13 @@
 if (!defined('B_PROLOG_INCLUDED') || B_PROLOG_INCLUDED !== true) die();
 
 use Bitrix\Main\Loader;
+use Bitrix\Main\EventManager;
 
 Loader::registerAutoLoadClasses(
     'pragma.importmodule',
     [
         'Pragma\\ImportModule\\Agent\\ImportAgent' => 'lib/agent/ImportAgent.php',
+        'Pragma\\ImportModule\\Agent\\CheckAgent' => 'lib/agent/CheckAgent.php',
         'Pragma\\ImportModule\\Logger' => 'lib/Logger.php',
         'Pragma\\ImportModule\\PropertyHelper' => 'lib/PropertyHelper.php',
         'Pragma\\ImportModule\\CacheHelper' => 'lib/CacheHelper.php',
@@ -24,5 +26,7 @@ Loader::registerAutoLoadClasses(
         'Pragma\\ImportModule\\Agent\\MainCode\\ProductUpdater' => 'lib/agent/main_code/ProductUpdater.php',
         'Pragma\\ImportModule\\Agent\\MainCode\\SimpleProductImporter' => 'lib/agent/main_code/SimpleProductImporter.php',
         'Pragma\\ImportModule\\Agent\\MainCode\\TradeOfferImporter' => 'lib/agent/main_code/TradeOfferImporter.php',
+        'Pragma\\ImportModule\\Agent\\MainCode\\SingleTradeOfferImporter' => 'lib/agent/main_code/SingleTradeOfferImporter.php',
+        'Pragma\\ImportModule\\EventHandlers' => 'lib/EventHandlers.php',
     ]
 );

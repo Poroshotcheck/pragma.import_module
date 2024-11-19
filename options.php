@@ -34,7 +34,7 @@ $agentManager = new AgentManager();
 
 // Проверка наличия агентов и их создание, если необходимо
 if (!$agentManager->getAgentInfo($agentManager->getAgentIdByName('CheckAgent'))) {
-    $agentManager->createAgent(\Pragma\ImportModule\Agent\CheckAgent::class, 300, date("d.m.Y H:i:s"), false);
+    $agentManager->createAgent(\Pragma\ImportModule\Agent\CheckAgent::class, 300, date("d.m.Y H:i:s"), true);
 }
 if (!$agentManager->getAgentInfo($agentManager->getAgentIdByName('ImportAgent'))) {
     $agentManager->createAgent(\Pragma\ImportModule\Agent\ImportAgent::class, 86400, date("d.m.Y H:i:s", time() + 86400), false);
@@ -70,22 +70,26 @@ if ($request->isPost() && strlen($request->getPost("Update")) > 0 && check_bitri
     $iblockIdImport = intval($request->getPost("IBLOCK_ID_IMPORT"));
     $iblockIdCatalog = intval($request->getPost("IBLOCK_ID_CATALOG"));
     $autoMode = $request->getPost("AUTO_MODE") ? "Y" : "N";
+    $typeMode = $request->getPost("TYPE_MODE") ? "Y" : "N";
     $delayTime = intval($request->getPost("DELAY_TIME"));
     $agentInterval = intval($request->getPost("AGENT_INTERVAL"));
     $agentNextExec = htmlspecialcharsbx($request->getPost("AGENT_NEXT_EXEC")); // Экранирование
     $sectionMappings = $request->getPost("SECTION_MAPPINGS");
     $importMappings = $request->getPost("IMPORT_MAPPINGS"); // Получение настроек новой вкладки
+    $enableLogging = $request->getPost("ENABLE_LOGGING") ? "Y" : "N";
 
     // Сохранение настроек
     Option::set($module_id, "IBLOCK_ID_IMPORT", $iblockIdImport);
     Option::set($module_id, "IBLOCK_ID_CATALOG", $iblockIdCatalog);
     Option::set($module_id, "AUTO_MODE", $autoMode);
+    Option::set($module_id, "TYPE_MODE", $typeMode);
     if ($autoMode === "Y") {
         Option::set($module_id, "DELAY_TIME", $delayTime);
     } else {
         Option::set($module_id, "AGENT_INTERVAL", $agentInterval);
         Option::set($module_id, "AGENT_NEXT_EXEC", $agentNextExec);
     }
+    Option::set($module_id, "ENABLE_LOGGING", $enableLogging);
 
     // Обработка SECTION_MAPPINGS
     $duplicatePropertiesMessage = '';
@@ -142,14 +146,44 @@ if ($request->isPost() && strlen($request->getPost("Update")) > 0 && check_bitri
 $iblockIdImport = Option::get($module_id, "IBLOCK_ID_IMPORT", $pragma_import_module_default_option['IBLOCK_ID_IMPORT']);
 $iblockIdCatalog = Option::get($module_id, "IBLOCK_ID_CATALOG", $pragma_import_module_default_option['IBLOCK_ID_CATALOG']);
 $autoMode = Option::get($module_id, "AUTO_MODE", $pragma_import_module_default_option['AUTO_MODE']);
+$typeMode = Option::get($module_id, "TYPE_MODE", $pragma_import_module_default_option['TYPE_MODE']);
 $delayTime = Option::get($module_id, "DELAY_TIME", $pragma_import_module_default_option['DELAY_TIME']);
 $agentInterval = Option::get($module_id, "AGENT_INTERVAL", $pragma_import_module_default_option['AGENT_INTERVAL']);
 $agentNextExec = Option::get($module_id, "AGENT_NEXT_EXEC", '');
 $sectionMappings = unserialize(Option::get($module_id, "SECTION_MAPPINGS"));
 $importMappings = unserialize(Option::get($module_id, "IMPORT_MAPPINGS")); // Получение настроек новой вкладки
+$enableLogging = Option::get($module_id, "ENABLE_LOGGING", $pragma_import_module_default_option['ENABLE_LOGGING']);
 
 // Получение списка инфоблоков
 $arIblocks = IblockHelper::getIblocks();
+
+// Обработка скачивания лог-файла
+if (isset($_GET['download'])) {
+    $file = basename($_GET['download']);
+    $filePath = __DIR__ . '/logs/' . $file;
+    if (file_exists($filePath)) {
+        header('Content-Type: application/octet-stream');
+        header('Content-Disposition: attachment; filename="' . $file . '"');
+        readfile($filePath);
+        exit;
+    } else {
+        echo "Файл не найден.";
+    }
+}
+
+// Обработка удаления лог-файла
+if (isset($_GET['delete'])) {
+    $file = basename($_GET['delete']);
+    $filePath = __DIR__ . '/logs/' . $file;
+    if (file_exists($filePath)) {
+        unlink($filePath);
+        // Перенаправление после удаления
+        header('Location: ' . $APPLICATION->GetCurPage() . '?mid=' . urlencode($module_id) . '&lang=' . LANGUAGE_ID);
+        exit;
+    } else {
+        echo "Файл не найден.";
+    }
+}
 
 // Массив с вкладками настроек
 $aTabs = [
@@ -165,11 +199,23 @@ $aTabs = [
         "ICON" => "pragma_import_module_section_mappings",
         "TITLE" => Loc::getMessage("PRAGMA_IMPORT_MODULE_SECTION_MAPPINGS_TITLE"),
     ],
-    [ // Новая вкладка
+    [
         "DIV" => "edit3",
         "TAB" => Loc::getMessage("PRAGMA_IMPORT_MODULE_IMPORT_MAPPINGS"),
         "ICON" => "pragma_import_module_import_mappings",
         "TITLE" => Loc::getMessage("PRAGMA_IMPORT_MODULE_IMPORT_MAPPINGS_TITLE"),
+    ],
+    [
+        "DIV" => "edit5",
+        "TAB" => Loc::getMessage("PRAGMA_IMPORT_MODULE_DATA_TAB"),
+        "ICON" => "pragma_import_module_data",
+        "TITLE" => Loc::getMessage("PRAGMA_IMPORT_MODULE_DATA_TAB_TITLE"),
+    ],
+    [
+        "DIV" => "edit4",
+        "TAB" => Loc::getMessage("PRAGMA_LOG_MODULE_TAB"),
+        "ICON" => "pragma_import_module_import_mappings",
+        "TITLE" => Loc::getMessage("PRAGMA_LOG_MODULE_TITLE"),
     ],
 ];
 
@@ -180,12 +226,7 @@ $APPLICATION->SetAdditionalCSS('/local/modules/pragma.importmodule/lib/css/style
 
 $tabControl->Begin();
 ?>
-<?
-//  file_put_contents(__DIR__ . "/test_section.txt", print_r($sectionMappings, true));
-// echo "<pre>";
-// var_dump(PRAGMA_IMPORT_MODULE_ID);
-// echo "</pre>";
-?>
+
 <form method="post" action="<?= $APPLICATION->GetCurPage() ?>?mid=<?= urlencode($module_id) ?>&lang=<?= LANGUAGE_ID ?>">
 
     <?= bitrix_sessid_post(); ?>
@@ -260,6 +301,16 @@ $tabControl->Begin();
         <td width="60%">
             <input type="datetime-local" name="AGENT_NEXT_EXEC" id="AGENT_NEXT_EXEC"
                 value="<?= date('Y-m-d\TH:i', strtotime($agentNextExec)) ?>">
+        </td>
+    </tr>
+
+    <!-- Простые/торговые предложения для элементов без группы -->
+    <tr>
+        <td width="40%">
+            <label for="TYPE_MODE"><?= Loc::getMessage("PRAGMA_IMPORT_MODULE_TYPE_MODE") ?>:</label>
+        </td>
+        <td width="60%">
+            <input type="checkbox" name="TYPE_MODE" id="TYPE_MODE" value="<?= $typeMode ?>" <?= $typeMode == "N" ? "" : "checked" ?>>
         </td>
     </tr>
 
@@ -398,6 +449,58 @@ $tabControl->Begin();
                 class="add-mapping-button"><?= Loc::getMessage("PRAGMA_IMPORT_MODULE_ADD_MAPPING") ?></button>
         </td>
     </tr>
+    <? $tabControl->BeginNextTab(); ?>
+
+    <!-- Контейнер для таблицы -->
+    <?php include __DIR__ . '/data_table.php'; ?>
+
+    <?
+    $tabControl->BeginNextTab();
+
+    // Получаем список лог-файлов из директории logs/
+    $logDir = __DIR__ . '/logs/';
+    $logFiles = array();
+    foreach (glob($logDir . '*.log') as $filePath) {
+        $fileName = basename($filePath);
+        $fileTime = filemtime($filePath);
+        $logFiles[$fileName] = $fileTime;
+    }
+    arsort($logFiles);
+    ?>
+    <tr>
+        <td width="40%">
+            <label for="ENABLE_LOGGING"><?= Loc::getMessage("PRAGMA_IMPORT_MODULE_ENABLE_LOGGING") ?>:</label>
+        </td>
+        <td width="60%">
+            <input type="checkbox" name="ENABLE_LOGGING" id="ENABLE_LOGGING" value="Y" <?= $enableLogging == "Y" ? "checked" : "" ?>>
+        </td>
+    </tr>
+    <br>
+    <!-- Вывод логов -->
+    <tr>
+        <td colspan="2">
+            <div class="log-files">
+                <?php foreach ($logFiles as $logFile => $fileTime): ?>
+                    <div class="log-file">
+                        <div class="log-header">
+                            <h3 onclick="toggleLogContent('<?= md5($logFile) ?>')">
+                                <?= htmlspecialchars($logFile) ?> (<?= date('d.m.Y H:i', $fileTime) ?>)
+                            </h3>
+                            <div class="log-actions">
+                                <a
+                                    href="<?= $APPLICATION->GetCurPage() ?>?mid=<?= urlencode($module_id) ?>&lang=<?= LANGUAGE_ID ?>&download=<?= urlencode($logFile) ?>">Скачать</a>
+                                |
+                                <a href="#" class="delete-log" data-file="<?= htmlspecialchars($logFile) ?>">Удалить</a>
+                            </div>
+                        </div>
+                        <div id="<?= md5($logFile) ?>" class="log-content">
+                            <pre><?php echo htmlspecialchars(file_get_contents($logDir . $logFile)); ?></pre>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        </td>
+    </tr>
 
     <? $tabControl->Buttons(); ?>
     <input type="submit" name="Update" value="<?= Loc::getMessage("MAIN_SAVE") ?>"
@@ -466,6 +569,40 @@ $tabControl->Begin();
 </template>
 
 <script>
+    document.addEventListener('DOMContentLoaded', function () {
+        document.querySelectorAll('.delete-log').forEach(function (element) {
+            element.addEventListener('click', function (event) {
+                event.preventDefault();
+                var fileName = this.getAttribute('data-file');
+                var logFileDiv = this.closest('.log-file');
+                var xhr = new XMLHttpRequest();
+                xhr.open('POST', '/local/modules/pragma.importmodule/lib/ajax.php', true);
+                xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+                xhr.onload = function () {
+                    if (xhr.status === 200) {
+                        if (xhr.responseText.trim() === 'success') {
+                            // Remove the log file element from the DOM
+                            logFileDiv.parentNode.removeChild(logFileDiv);
+                        } else {
+                            alert('Ошибка при удалении файла: ' + xhr.responseText);
+                        }
+                    } else {
+                        alert('Ошибка сервера при удалении файла.');
+                    }
+                };
+                xhr.send('action=delete_log&file=' + encodeURIComponent(fileName) + '&' + '<?= bitrix_sessid_get() ?>');
+            });
+        });
+    });
+
+    function toggleLogContent(id) {
+        var content = document.getElementById(id);
+        var logFileDiv = content.closest('.log-file');
+        if (logFileDiv) {
+            logFileDiv.classList.toggle('open');
+        }
+    }
+
     // Функция для добавления поля фильтрации к select
     function addSearchToSelect(select) {
         const wrapper = select.closest('.select-wrapper');
@@ -496,10 +633,40 @@ $tabControl->Begin();
 
         searchInput.addEventListener('input', function () {
             const filter = this.value.toLowerCase();
-            Array.from(select.options).forEach(option => {
-                const text = option.text.toLowerCase();
-                option.style.display = text.includes(filter) ? '' : 'none';
+
+            const options = Array.from(select.options);
+            const optionsByValue = {};
+            options.forEach(option => {
+                optionsByValue[option.value] = option;
+                option.style.display = 'none'; // Скрываем все опции изначально
             });
+
+            options.forEach(option => {
+                const text = option.text.toLowerCase();
+                const matches = text.includes(filter);
+                if (matches) {
+                    option.style.display = ''; // Показываем подходящую опцию
+                    // Также показываем всех родительских опций
+                    let parentId = option.getAttribute('data-parent-id');
+                    while (parentId) {
+                        const parentOption = optionsByValue[parentId];
+                        if (parentOption && parentOption.style.display === 'none') {
+                            parentOption.style.display = '';
+                            parentId = parentOption.getAttribute('data-parent-id');
+                        } else {
+                            parentId = null;
+                        }
+                    }
+                }
+            });
+
+            // Всегда отображаем разделы верхнего уровня
+            // options.forEach(option => {
+            //     const level = parseInt(option.getAttribute('data-level'));
+            //     if (level === 0) {
+            //         option.style.display = '';
+            //     }
+            // });
         });
 
         document.addEventListener('click', function (event) {
@@ -553,8 +720,9 @@ $tabControl->Begin();
         var newProperty = document.createElement('div');
         newProperty.className = 'property';
         newProperty.innerHTML = `
-    <input type="text" name="">
-    <button type="button" onclick="removeProperty(this)"><?= Loc::getMessage("PRAGMA_IMPORT_MODULE_REMOVE_PROPERTY") ?></button>
+<input type="text" name="">
+<button type="button"
+    onclick="removeProperty(this)"><?= Loc::getMessage("PRAGMA_IMPORT_MODULE_REMOVE_PROPERTY") ?></button>
 `;
         container.appendChild(newProperty);
 
@@ -616,7 +784,8 @@ $tabControl->Begin();
         newMapping.querySelector('select[id^="IMPORT_MAPPINGS"]').name = `IMPORT_MAPPINGS[${index}][TOTAL_MATCHES]`;
         newMapping.querySelector('select[id^="IMPORT_MAPPINGS"]').id = `IMPORT_MAPPINGS[${index}][TOTAL_MATCHES]`;
         newMapping.querySelector('.import-properties-container').dataset.index = index;
-        newMapping.querySelector('button[onclick^="addImportProperty"]').setAttribute('onclick', `addImportProperty('${index}')`);
+        newMapping.querySelector('button[onclick^="addImportProperty"]').setAttribute('onclick',
+            `addImportProperty('${index}')`);
 
         // Добавляем новый элемент в контейнер
         container.appendChild(newMapping);
@@ -664,12 +833,12 @@ $tabControl->Begin();
         // Добавляем select для matches
         const matchesSelect = document.createElement('select');
         matchesSelect.innerHTML = `
-        <option value="1">1</option>
-        <option value="2">2</option>
-        <option value="3">3</option>
-        <option value="4">4</option>
-        <option value="5">5</option>
-    `;
+<option value="1">1</option>
+<option value="2">2</option>
+<option value="3">3</option>
+<option value="4">4</option>
+<option value="5">5</option>
+`;
         newProperty.appendChild(matchesSelect);
 
         // Добавляем кнопку удаления
@@ -713,30 +882,93 @@ $tabControl->Begin();
     // Функция для загрузки разделов для второго таба
     function updateImportSectionOptions(iblockId, selectElement = null) {
         if (!iblockId) return;
-        fetch(`/local/modules/pragma.importmodule/lib/ajax.php?IBLOCK_ID=${iblockId}`)
-            .then(response => {
-                return response.text();
-            })
+        const sessid = BX.bitrix_sessid(); // Get the session ID
+
+        fetch(`/local/modules/pragma.importmodule/lib/ajax.php?IBLOCK_ID=${iblockId}&sessid=${sessid}`)
+            .then(response => response.text())
             .then(html => {
-                if (selectElement) {
-                    selectElement.innerHTML = html; // Обновляем только переданный select
+                const selectsToUpdate = selectElement ? [selectElement] : document.querySelectorAll('.import-section-select');
+                selectsToUpdate.forEach(select => {
+                    const currentValue = select.value;
+                    select.innerHTML = html;
 
-                    // Добавляем первое свойство после загрузки разделов
-                    const mappingIndex = selectElement.closest('.import-mapping').dataset.sectionId;
+                    if (currentValue && select.querySelector(`option[value="${currentValue}"]`)) {
+                        select.value = currentValue;
+                    } else {
+                        select.selectedIndex = 0;
+                    }
 
-                    // Ищем propertyCodeSelect внутри selectElement
-                    const propertyCodeSelect = selectElement.closest('.import-mapping').querySelector('.property-code-select');
-
-                    // Загружаем опции свойств и вызываем addImportProperty после загрузки
-                    updatePropertyOptionsImport(iblockId, propertyCodeSelect, function () {
+                    // Reset properties for this mapping
+                    const propertiesContainer = select.closest('.import-mapping').querySelector('.import-properties-container');
+                    if (propertiesContainer) {
+                        propertiesContainer.innerHTML = '';
+                        // Add the first property
+                        const mappingIndex = select.closest('.import-mapping').dataset.sectionId;
                         addImportProperty(mappingIndex);
-                    });
-                } else {
-                    const selectsToUpdate = document.querySelectorAll('.import-section-select');
-                    selectsToUpdate.forEach(select => {
-                        select.innerHTML = html; // Обновляем все select, если selectElement не передан
-                    });
-                }
+                    }
+                });
+            })
+            .catch(error => console.error('Error fetching import section options:', error));
+    }
+
+    function updateAllImportProperties(iblockId) {
+        if (!iblockId) return;
+        const sessid = BX.bitrix_sessid();
+
+        fetch(`/local/modules/pragma.importmodule/lib/ajax.php?IBLOCK_ID=${iblockId}&PROPERTY=Y&sessid=${sessid}`)
+            .then(response => response.text())
+            .then(html => {
+                const propertySelects = document.querySelectorAll('.import-property .property-select-import');
+                propertySelects.forEach(select => {
+                    const previousValue = select.value;
+                    select.innerHTML = html;
+
+                    // Re-select previous value if it exists
+                    if (select.querySelector(`option[value="${previousValue}"]`)) {
+                        select.value = previousValue;
+                    } else {
+                        select.selectedIndex = 0;
+                    }
+
+                    // Update name attributes
+                    const newPropertyCode = select.value;
+                    const mappingElement = select.closest('.import-mapping');
+                    const mappingIndex = mappingElement.dataset.sectionId;
+                    const matchesSelect = select.nextElementSibling; // Assuming matchesSelect follows propertySelect
+                    select.name = `IMPORT_MAPPINGS[${mappingIndex}][PROPERTIES][${newPropertyCode}][CODE]`;
+                    matchesSelect.name = `IMPORT_MAPPINGS[${mappingIndex}][PROPERTIES][${newPropertyCode}][MATCHES]`;
+                });
+            })
+            .catch(error => console.error('Error fetching import property options:', error));
+    }
+
+    function updateImportSectionOptions(iblockId, selectElement = null) {
+        if (!iblockId) return;
+        const sessid = BX.bitrix_sessid(); // Get the session ID
+
+        fetch(`/local/modules/pragma.importmodule/lib/ajax.php?IBLOCK_ID=${iblockId}&sessid=${sessid}`)
+            .then(response => response.text())
+            .then(html => {
+                const selectsToUpdate = selectElement ? [selectElement] : document.querySelectorAll('.import-section-select');
+                selectsToUpdate.forEach(select => {
+                    const currentValue = select.value;
+                    select.innerHTML = html;
+
+                    if (currentValue && select.querySelector(`option[value="${currentValue}"]`)) {
+                        select.value = currentValue;
+                    } else {
+                        select.selectedIndex = 0;
+                    }
+
+                    // Reset properties for this mapping
+                    const propertiesContainer = select.closest('.import-mapping').querySelector('.import-properties-container');
+                    if (propertiesContainer) {
+                        propertiesContainer.innerHTML = '';
+                        // Add the first property
+                        const mappingIndex = select.closest('.import-mapping').dataset.sectionId;
+                        addImportProperty(mappingIndex);
+                    }
+                });
             })
             .catch(error => console.error('Error fetching import section options:', error));
     }
@@ -790,6 +1022,21 @@ $tabControl->Begin();
             }
         });
 
+        document.getElementById('IBLOCK_ID_IMPORT').addEventListener('change', function () {
+            const iblockId = this.value;
+            if (iblockId) {
+                // Update the sections in the import mappings
+                updateImportSectionOptions(iblockId);
+
+                // Update the properties in the import mappings
+                updateAllImportProperties(iblockId);
+            } else {
+                // Clear the import mappings if no IBLOCK_ID_IMPORT is selected
+                const importMappingsContainer = document.getElementById('import_mappings_container');
+                importMappingsContainer.innerHTML = '';
+            }
+        });
+
         // Инициализация фильтров для существующих select при загрузке страницы
         const existingSelects = document.querySelectorAll('.section-select');
         existingSelects.forEach(select => {
@@ -807,9 +1054,10 @@ $tabControl->Begin();
             document.getElementById('IBLOCK_ID_IMPORT').value = defaultOptions.IBLOCK_ID_IMPORT;
             document.getElementById('IBLOCK_ID_CATALOG').value = defaultOptions.IBLOCK_ID_CATALOG;
             document.getElementById('AUTO_MODE').checked = defaultOptions.AUTO_MODE;
+            document.getElementById('TYPE_MODE').checked = defaultOptions.TYPE_MODE;
             document.getElementById('DELAY_TIME').value = defaultOptions.DELAY_TIME;
-            document.getElementById('AGENT_INTERVAL').value = <?= $agentInterval ?>; // Используем актуальные данные агента
-            document.getElementById('AGENT_NEXT_EXEC').value = '<?= date('Y-m-d\TH:i', strtotime($agentNextExec)) ?>'; // Используем актуальные данные агента
+            document.getElementById('AGENT_INTERVAL').value = <?= $agentInterval ?>;
+            document.getElementById('AGENT_NEXT_EXEC').value = '<?= date('Y-m-d\TH:i', strtotime($agentNextExec)) ?>';
 
             // Очищаем все сопоставления разделов
             const container = document.getElementById('section_mappings_container');

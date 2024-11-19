@@ -77,25 +77,22 @@ class SectionHelper
         }
     }
 
-    public static function buildSectionOptions($sections, $selectedId = null, $level = 0)
+    public static function buildSectionOptions($sections, $selectedId = null, $level = 0, $parentId = null)
     {
         try {
-            // Logger::log("Начало построения HTML опций разделов на уровне: $level");
-
             $result = '';
             foreach ($sections as $section) {
                 $selected = ($section['ID'] == $selectedId) ? 'selected' : '';
-                $result .= '<option value="' . $section['ID'] . '" ' . $selected . '>'
-                    . str_repeat("   ", $level) . htmlspecialcharsbx($section['NAME']) . " [ID =" . $section['ID'] . "]"
+                $dataLevel = 'data-level="' . $level . '"';
+                $dataParent = $parentId !== null ? 'data-parent-id="' . $parentId . '"' : '';
+                $result .= '<option value="' . $section['ID'] . '" ' . $selected . ' ' . $dataLevel . ' ' . $dataParent . '>'
+                    . str_repeat("&nbsp;&nbsp;&nbsp;", $level) . htmlspecialcharsbx($section['NAME']) . " [ID =" . $section['ID'] . "]"
                     . '</option>';
                 if (isset($section['CHILDREN']) && is_array($section['CHILDREN'])) {
-                    $result .= self::buildSectionOptions($section['CHILDREN'], $selectedId, $level + 1);
+                    $result .= self::buildSectionOptions($section['CHILDREN'], $selectedId, $level + 1, $section['ID']);
                 }
             }
             return $result;
-
-            // Logger::log("HTML опции разделов успешно построены");
-
         } catch (\Exception $e) {
             Logger::log("Ошибка в buildSectionOptions: " . $e->getMessage(), "ERROR");
             return '';
