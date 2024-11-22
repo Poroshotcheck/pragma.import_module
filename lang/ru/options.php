@@ -31,4 +31,6 @@ $MESS["PRAGMA_IMPORT_MODULE_ENABLE_LOGGING"] = "Включить логиров�
 $MESS["PRAGMA_IMPORT_MODULE_DATA_TAB"] = "Таблица";
 $MESS["PRAGMA_IMPORT_MODULE_DATA_TAB_TITLE"] = "Таблица для анализа";
 $MESS["PRAGMA_IMPORT_MODULE_TYPE_MODE"] = "Создавать торговые предложения при отсутствии группировки:";
+$MESS["PRAGMA_IMPORT_MODULE_CATALOG_PROPERTIES"] = "Возможные свойства для фильтра Каталог";
+$MESS["PRAGMA_IMPORT_MODULE_SKU_PROPERTIES"] = "Возможные свойства для фильтра ТП";
 

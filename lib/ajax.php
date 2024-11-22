@@ -47,7 +47,7 @@ $action = $request->getPost('action');
 if ($action === 'delete_log') {
     // Implement the delete_log action
     $file = basename($request->getPost('file'));
-    $filePath =  $_SERVER['DOCUMENT_ROOT'].'/local/modules/pragma.importmodule/logs/' . $file;
+    $filePath = $_SERVER['DOCUMENT_ROOT'] . '/local/modules/pragma.importmodule/logs/' . $file;
 
     if (file_exists($filePath)) {
         if (unlink($filePath)) {
@@ -80,7 +80,7 @@ if ($action === 'delete_log') {
     if ($iblockId > 0) {
         if ($getProperty === 'Y') {
             // Return list of properties
-            echo PropertyHelper::getPropertyOptionsHtml($iblockId);
+            echo PropertyHelper::getPropertyOptionsHtml($iblockId, null, null, "S");
         } else {
             // Return list of sections
             echo SectionHelper::getSectionOptionsHtml($iblockId);

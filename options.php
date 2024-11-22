@@ -73,10 +73,32 @@ if ($request->isPost() && strlen($request->getPost("Update")) > 0 && check_bitri
     $typeMode = $request->getPost("TYPE_MODE") ? "Y" : "N";
     $delayTime = intval($request->getPost("DELAY_TIME"));
     $agentInterval = intval($request->getPost("AGENT_INTERVAL"));
-    $agentNextExec = htmlspecialcharsbx($request->getPost("AGENT_NEXT_EXEC")); // Экранирование
-    $sectionMappings = $request->getPost("SECTION_MAPPINGS");
-    $importMappings = $request->getPost("IMPORT_MAPPINGS"); // Получение настроек новой вкладки
+    $agentNextExec = htmlspecialcharsbx($request->getPost("AGENT_NEXT_EXEC"));
+    $sectionMappings = [];
+    $rawSectionMappings = $request->getPost("SECTION_MAPPINGS");
+    
+    if (is_array($rawSectionMappings)) {
+        foreach ($rawSectionMappings as $index => $mapping) {
+            if (!empty($mapping['SECTION_ID'])) {
+                $sectionMappings[$index] = [
+                    'SECTION_ID' => $mapping['SECTION_ID'],
+                    'PROPERTIES' => isset($mapping['PROPERTIES']) ? array_filter($mapping['PROPERTIES']) : [],
+                    'FILTER_PROPERTIES' => isset($mapping['FILTER_PROPERTIES']) ? $mapping['FILTER_PROPERTIES'] : []
+                ];
+            }
+        }
+    }
+
+    // Process section mappings with the filter properties
+    $duplicatePropertiesMessage = '';
+    OptionsHelper::processSectionMappings($sectionMappings, $duplicatePropertiesMessage);
+
+    $importMappings = $request->getPost("IMPORT_MAPPINGS");
     $enableLogging = $request->getPost("ENABLE_LOGGING") ? "Y" : "N";
+
+    // Получение выбранных свойств из запроса
+    $selectedCatalogProperties = array_keys($request->getPost("CATALOG_PROPERTIES") ?: []);
+    $selectedOffersProperties = array_keys($request->getPost("OFFERS_PROPERTIES") ?: []);
 
     // Сохранение настроек
     Option::set($module_id, "IBLOCK_ID_IMPORT", $iblockIdImport);
@@ -90,10 +112,9 @@ if ($request->isPost() && strlen($request->getPost("Update")) > 0 && check_bitri
         Option::set($module_id, "AGENT_NEXT_EXEC", $agentNextExec);
     }
     Option::set($module_id, "ENABLE_LOGGING", $enableLogging);
-
-    // Обработка SECTION_MAPPINGS
-    $duplicatePropertiesMessage = '';
-    OptionsHelper::processSectionMappings($sectionMappings, $duplicatePropertiesMessage);
+    // Сохраняем выбранные свойства
+    Option::set($module_id, "SELECTED_CATALOG_PROPERTIES", serialize($selectedCatalogProperties));
+    Option::set($module_id, "SELECTED_OFFERS_PROPERTIES", serialize($selectedOffersProperties));
 
     // Обработка IMPORT_MAPPINGS
     $duplicateSectionsMessage = '';
@@ -124,7 +145,7 @@ if ($request->isPost() && strlen($request->getPost("Update")) > 0 && check_bitri
     }
     if ($iblockIdImport > 0) {
         CacheHelper::updateSectionsCache($iblockIdImport);
-        CacheHelper::updatePropertiesCache($iblockIdImport);
+        CacheHelper::updatePropertiesCache($iblockIdImport, 'S');
     }
 
     // Сохраняем сообщения об ошибках в сессии
@@ -151,8 +172,33 @@ $delayTime = Option::get($module_id, "DELAY_TIME", $pragma_import_module_default
 $agentInterval = Option::get($module_id, "AGENT_INTERVAL", $pragma_import_module_default_option['AGENT_INTERVAL']);
 $agentNextExec = Option::get($module_id, "AGENT_NEXT_EXEC", '');
 $sectionMappings = unserialize(Option::get($module_id, "SECTION_MAPPINGS"));
-$importMappings = unserialize(Option::get($module_id, "IMPORT_MAPPINGS")); // Получение настроек новой вкладки
+$importMappings = unserialize(Option::get($module_id, "IMPORT_MAPPINGS"));
 $enableLogging = Option::get($module_id, "ENABLE_LOGGING", $pragma_import_module_default_option['ENABLE_LOGGING']);
+
+// Получение сохранённых выбранных свойств
+$selectedCatalogProperties = unserialize(Option::get($module_id, "SELECTED_CATALOG_PROPERTIES", serialize([]))) ?: [];
+$selectedOffersProperties = unserialize(Option::get($module_id, "SELECTED_OFFERS_PROPERTIES", serialize([]))) ?: [];
+
+// Получаем все свойства через PropertyHelper
+$allProps = PropertyHelper::getAllProperties($iblockIdCatalog, $selectedCatalogProperties, $selectedOffersProperties);
+
+$catalogListProperties = $allProps['catalogListProperties'];
+$offersListProperties = $allProps['offersListProperties'];
+$allProperties = [
+    'CATALOG' => $allProps['catalogProperties'],
+    'OFFERS' => $allProps['offerProperties']
+];
+
+// Фильтруем выбранные свойства, оставляя только существующие
+$selectedCatalogProperties = array_intersect(
+    $selectedCatalogProperties, 
+    array_keys($catalogListProperties)
+);
+
+$selectedOffersProperties = array_intersect(
+    $selectedOffersProperties, 
+    array_keys($offersListProperties)
+);
 
 // Получение списка инфоблоков
 $arIblocks = IblockHelper::getIblocks();
@@ -226,7 +272,9 @@ $APPLICATION->SetAdditionalCSS('/local/modules/pragma.importmodule/lib/css/style
 
 $tabControl->Begin();
 ?>
-
+<script>
+    var allProperties = <?= CUtil::PhpToJSObject($allProperties) ?>;
+</script>
 <form method="post" action="<?= $APPLICATION->GetCurPage() ?>?mid=<?= urlencode($module_id) ?>&lang=<?= LANGUAGE_ID ?>">
 
     <?= bitrix_sessid_post(); ?>
@@ -314,60 +362,165 @@ $tabControl->Begin();
         </td>
     </tr>
 
+    <tr class="heading">
+    <td colspan="2"><?= Loc::getMessage("PRAGMA_IMPORT_MODULE_CATALOG_PROPERTIES") ?></td>
+</tr>
+<?php if (!empty($catalogListProperties)): ?>
+    <?php foreach ($catalogListProperties as $code => $name): ?>
+        <tr>
+            <td width="40%">
+                <label for="CATALOG_PROPERTIES[<?= htmlspecialcharsbx($code) ?>]"><?= htmlspecialcharsbx($name) ?>:</label>
+            </td>
+            <td width="60%">
+                <input type="checkbox" 
+                       name="CATALOG_PROPERTIES[<?= htmlspecialcharsbx($code) ?>]" 
+                       value="Y"
+                       <?= in_array($code, $selectedCatalogProperties) ? "checked" : "" ?>>
+            </td>
+        </tr>
+    <?php endforeach; ?>
+<?php else: ?>
+    <tr>
+        <td colspan="2"><?= Loc::getMessage("PRAGMA_IMPORT_MODULE_NO_LIST_PROPERTIES") ?></td>
+    </tr>
+<?php endif; ?>
+
+<!-- Свойства торговых предложений -->
+<tr class="heading">
+    <td colspan="2"><?= Loc::getMessage("PRAGMA_IMPORT_MODULE_SKU_PROPERTIES") ?></td>
+</tr>
+<?php if (!empty($offersListProperties)): ?>
+    <?php foreach ($offersListProperties as $code => $name): ?>
+        <tr>
+            <td width="40%">
+                <label for="OFFERS_PROPERTIES[<?= htmlspecialcharsbx($code) ?>]"><?= htmlspecialcharsbx($name) ?>:</label>
+            </td>
+            <td width="60%">
+                <input type="checkbox" 
+                       name="OFFERS_PROPERTIES[<?= htmlspecialcharsbx($code) ?>]" 
+                       value="Y"
+                       <?= in_array($code, $selectedOffersProperties) ? "checked" : "" ?>>
+            </td>
+        </tr>
+    <?php endforeach; ?>
+<?php else: ?>
+    <tr>
+        <td colspan="2"><?= Loc::getMessage("PRAGMA_IMPORT_MODULE_NO_SKU_PROPERTIES") ?></td>
+    </tr>
+<?php endif; ?>
+
     <? $tabControl->BeginNextTab(); ?>
 
-    <!-- Множественная настройка сопоставления разделов и свойств -->
-    <tr>
-        <td colspan="2">
-            <div id="section_mappings_container">
-                <?php
-                if (empty($sectionMappings)) {
-                    $sectionMappings = [['SECTION_ID' => '', 'PROPERTIES' => ['']]];
-                }
+        <tr>
+            <td colspan="2">
+                <div id="section_mappings_container">
+                    <?php
+                    if (empty($sectionMappings)) {
+                        $sectionMappings = [['SECTION_ID' => '', 'PROPERTIES' => ['']]];
+                    }
 
-                // Получаем данные из кэша один раз перед циклом
-                $cachedData = CacheHelper::getCachedSections($iblockIdCatalog);
-                $sections = $cachedData ? $cachedData[0] : [];
+                    // Получаем данные из кэша один раз перед циклом
+                    $cachedData = CacheHelper::getCachedSections($iblockIdCatalog);
+                    $sections = $cachedData ? $cachedData[0] : [];
 
-                foreach ($sectionMappings as $index => $mapping):
+                    foreach ($sectionMappings as $index => $mapping):
                     ?>
-                    <div class="section-mapping">
-                        <div class="select-wrapper">
+                        <div class="section-mapping">
                             <div class="select-wrapper">
-                                <div>
-                                    <input type="text" class="search-input" placeholder="Поиск..." style="display: none;">
-                                    <select name="SECTION_MAPPINGS[<?= $index ?>][SECTION_ID]" class="section-select"
-                                        data-index="<?= $index ?>">
-                                        <?php
-                                        if ($iblockIdCatalog) {
-                                            echo SectionHelper::getSectionOptionsHtml($iblockIdCatalog, $mapping['SECTION_ID'], $sections);
-                                        }
-                                        ?>
-                                    </select>
+                                <div class="select-wrapper">
+                                    <div>
+                                        <input type="text" class="search-input" placeholder="Поиск..." style="display: none;">
+                                        <select name="SECTION_MAPPINGS[<?= $index ?>][SECTION_ID]" class="section-select"
+                                            data-index="<?= $index ?>">
+                                            <?php
+                                            if ($iblockIdCatalog) {
+                                                echo SectionHelper::getSectionOptionsHtml($iblockIdCatalog, $mapping['SECTION_ID'], $sections);
+                                            }
+                                            ?>
+                                        </select>
+                                    </div>
+                                    <button type="button" onclick="removeMapping(this)"><?= Loc::getMessage("PRAGMA_IMPORT_MODULE_REMOVE_MAPPING") ?></button>
+                                </div>
+                            </div>
+                            <div class="filter-properties">
+                                <!-- Catalog Properties Section -->
+                                <div class="filter-properties-section">
+                                    <div class="filter-section-header"><?= Loc::getMessage("PRAGMA_IMPORT_MODULE_CATALOG_PROPERTIES") ?></div>
+                                    <div class="filter-properties-tabs">
+                                        <?php foreach ($allProperties['CATALOG'] as $uniqueKey => $propertyData): ?>
+                                            <div class="tabs-container">
+                                                <!-- <div class="tabs-label"><?= htmlspecialcharsbx($propertyData['NAME']) ?>:</div> -->
+                                                <div class="tabs-wrapper">
+                                                    <?php foreach ($propertyData['VALUES'] as $enumId => $enumData): ?>
+                                                        <?php
+                                                        $originalCode = $propertyData['ORIGINAL_CODE'];
+                                                        $selectedValues = $mapping['FILTER_PROPERTIES']['CATALOG_' . $originalCode] ?? [];
+                                                        ?>
+                                                        <label class="tab-label">
+                                                            <input type="checkbox" 
+                                                                name="SECTION_MAPPINGS[<?= $index ?>][FILTER_PROPERTIES][CATALOG_<?= htmlspecialcharsbx($originalCode) ?>][]"
+                                                                value="<?= htmlspecialcharsbx($enumId) ?>"
+                                                                <?= in_array($enumId, $selectedValues) ? 'checked' : '' ?>>
+                                                            <span class="tab-text">
+                                                                <?= htmlspecialcharsbx($enumData['VALUE']) ?>
+                                                            </span>
+                                                        </label>
+                                                    <?php endforeach; ?>
+                                                </div>
+                                            </div>
+                                        <?php endforeach; ?>
+                                    </div>
+                                </div>
+
+                                <!-- Offers Properties Section -->
+                                <div class="filter-properties-section">
+                                    <div class="filter-section-header"><?= Loc::getMessage("PRAGMA_IMPORT_MODULE_SKU_PROPERTIES") ?></div>
+                                    <div class="filter-properties-tabs">
+                                        <?php foreach ($allProperties['OFFERS'] as $uniqueKey => $propertyData): ?>
+                                            <div class="tabs-container">
+                                                <!-- <div class="tabs-label"><?= htmlspecialcharsbx($propertyData['NAME']) ?>:</div> -->
+                                                <div class="tabs-wrapper">
+                                                    <?php foreach ($propertyData['VALUES'] as $enumId => $enumData): ?>
+                                                        <?php
+                                                        $originalCode = $propertyData['ORIGINAL_CODE'];
+                                                        $selectedValues = $mapping['FILTER_PROPERTIES']['OFFER_' . $originalCode] ?? [];
+                                                        ?>
+                                                        <label class="tab-label">
+                                                            <input type="checkbox" 
+                                                                name="SECTION_MAPPINGS[<?= $index ?>][FILTER_PROPERTIES][OFFER_<?= htmlspecialcharsbx($originalCode) ?>][]"
+                                                                value="<?= htmlspecialcharsbx($enumId) ?>"
+                                                                <?= in_array($enumId, $selectedValues) ? 'checked' : '' ?>>
+                                                            <span class="tab-text">
+                                                                <?= htmlspecialcharsbx($enumData['VALUE']) ?>
+                                                            </span>
+                                                        </label>
+                                                    <?php endforeach; ?>
+                                                </div>
+                                            </div>
+                                        <?php endforeach; ?>
+                                    </div>
+                                </div>
+
+                                <div class="properties-container">
+                                    <?php foreach ($mapping['PROPERTIES'] as $propIndex => $property): ?>
+                                        <div class="property">
+                                            <input type="text" name="SECTION_MAPPINGS[<?= $index ?>][PROPERTIES][]"
+                                                value="<?= htmlspecialcharsbx($property) ?>">
+                                            <button type="button"
+                                                onclick="removeProperty(this)"><?= Loc::getMessage("PRAGMA_IMPORT_MODULE_REMOVE_PROPERTY") ?></button>
+                                        </div>
+                                    <?php endforeach; ?>
                                 </div>
                                 <button type="button"
-                                    onclick="removeMapping(this)"><?= Loc::getMessage("PRAGMA_IMPORT_MODULE_REMOVE_MAPPING") ?></button>
+                                    onclick="addProperty(this)"><?= Loc::getMessage("PRAGMA_IMPORT_MODULE_ADD_PROPERTY") ?></button>
                             </div>
                         </div>
-                        <div class="properties-container">
-                            <?php foreach ($mapping['PROPERTIES'] as $propIndex => $property): ?>
-                                <div class="property">
-                                    <input type="text" name="SECTION_MAPPINGS[<?= $index ?>][PROPERTIES][]"
-                                        value="<?= htmlspecialcharsbx($property) ?>">
-                                    <button type="button"
-                                        onclick="removeProperty(this)"><?= Loc::getMessage("PRAGMA_IMPORT_MODULE_REMOVE_PROPERTY") ?></button>
-                                </div>
-                            <?php endforeach; ?>
-                        </div>
-                        <button type="button"
-                            onclick="addProperty(this)"><?= Loc::getMessage("PRAGMA_IMPORT_MODULE_ADD_PROPERTY") ?></button>
-                    </div>
-                <?php endforeach; ?>
-            </div>
-            <button type="button" onclick="addMapping()"
-                class="add-mapping-button"><?= Loc::getMessage("PRAGMA_IMPORT_MODULE_ADD_MAPPING") ?></button>
-        </td>
-    </tr>
+                    <?php endforeach; ?>
+                </div>
+                <button type="button" onclick="addMapping()"
+                    class="add-mapping-button"><?= Loc::getMessage("PRAGMA_IMPORT_MODULE_ADD_MAPPING") ?></button>
+            </td>
+        </tr>
 
     <? $tabControl->BeginNextTab(); ?>
 
@@ -425,7 +578,7 @@ $tabControl->Begin();
                                     <select name="IMPORT_MAPPINGS[<?= $sectionId ?>][PROPERTIES][<?= $propCode ?>][CODE]"
                                         class="property-select-import" data-index="<?= $propCode ?>">
                                         <?php
-                                        echo PropertyHelper::getPropertyOptionsHtml($iblockIdImport, $property['CODE'], $propertiesImport);
+                                        echo PropertyHelper::getPropertyOptionsHtml($iblockIdImport, $property['CODE'], $propertiesImport, "S");
                                         ?>
                                     </select>
                                     <select name="IMPORT_MAPPINGS[<?= $sectionId ?>][PROPERTIES][<?= $propCode ?>][MATCHES]">
@@ -830,7 +983,7 @@ $tabControl->Begin();
         // Добавляем select для выбора кода свойства в newProperty
         newProperty.appendChild(propertyCodeSelect);
 
-        // Добавляем select для matches
+        // Дбавляем select для matches
         const matchesSelect = document.createElement('select');
         matchesSelect.innerHTML = `
 <option value="1">1</option>
@@ -1050,7 +1203,7 @@ $tabControl->Begin();
             // Загружаем значения по умолчанию
             const defaultOptions = <?= CUtil::PhpToJSObject($pragma_import_module_default_option) ?>;
 
-            // Устанавливаем значения по умолчанию для полей формы
+            // Устанавливаем значения по умолчанию для поле формы
             document.getElementById('IBLOCK_ID_IMPORT').value = defaultOptions.IBLOCK_ID_IMPORT;
             document.getElementById('IBLOCK_ID_CATALOG').value = defaultOptions.IBLOCK_ID_CATALOG;
             document.getElementById('AUTO_MODE').checked = defaultOptions.AUTO_MODE;

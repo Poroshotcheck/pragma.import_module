@@ -36,58 +36,48 @@ class OptionsHelper
         }
     }
 
-    public static function processSectionMappings(&$sectionMappings, &$duplicatePropertiesMessage)
+    public static function processSectionMappings($sectionMappings, &$duplicatePropertiesMessage) 
     {
-        try {
-            // Logger::log("Starting to process section mappings");
-            $moduleId = self::getModuleVersionData()['MODULE_ID']; 
+        global $module_id;
+        
+        if (!is_array($sectionMappings)) {
+            return;
+        }
 
-            $mergedMappings = [];
+        $processedMappings = [];
+        foreach ($sectionMappings as $index => $mapping) {
+            if (empty($mapping['SECTION_ID'])) {
+                continue;
+            }
 
-            foreach ($sectionMappings as $mapping) {
-                // Skip entries without PROPERTIES or with empty PROPERTIES
-                if (empty($mapping['PROPERTIES'])) {
-                    continue;
-                }
-
-                $sectionId = $mapping['SECTION_ID'];
-
-                if (!isset($mergedMappings[$sectionId])) {
-                    $mergedMappings[$sectionId] = [
-                        'SECTION_ID' => $sectionId,
-                        'PROPERTIES' => [],
-                    ];
-                }
-
-                foreach ($mapping['PROPERTIES'] as $property) {
-                    $trimmedProperty = trim($property);
-
-                    if ($trimmedProperty === '') {
-                        continue; // Skip empty properties
-                    }
-
-                    $propertyLower = mb_strtolower($trimmedProperty);
-
-                    // Check for duplicates
-                    $existingPropertiesLower = array_map('mb_strtolower', $mergedMappings[$sectionId]['PROPERTIES']);
-
-                    if (!in_array($propertyLower, $existingPropertiesLower)) {
-                        $mergedMappings[$sectionId]['PROPERTIES'][] = $trimmedProperty;
-                    } else {
-                        self::addDuplicatePropertyMessage($property, $sectionId, $duplicatePropertiesMessage);
+            $sectionId = $mapping['SECTION_ID'];
+            $properties = isset($mapping['PROPERTIES']) ? array_filter($mapping['PROPERTIES']) : [];
+            
+            // Process filter properties
+            $filterProperties = [];
+            if (isset($mapping['FILTER_PROPERTIES']) && is_array($mapping['FILTER_PROPERTIES'])) {
+                foreach ($mapping['FILTER_PROPERTIES'] as $propertyCode => $selectedValues) {
+                    if (!empty($selectedValues)) {
+                        $filterProperties[$propertyCode] = array_map('intval', $selectedValues);
                     }
                 }
             }
 
-            // Re-index the array to ensure it's sequential
-            $sectionMappings = array_values($mergedMappings);
+            // Check for duplicate section IDs
+            if (isset($processedMappings[$sectionId])) {
+                $duplicatePropertiesMessage .= "Section ID: $sectionId\n";
+                continue;
+            }
 
-            Option::set($moduleId, "SECTION_MAPPINGS", serialize($sectionMappings));
+            $processedMappings[$sectionId] = [
+                'SECTION_ID' => $sectionId,
+                'PROPERTIES' => $properties,
+                'FILTER_PROPERTIES' => $filterProperties
+            ];
+        }
 
-            // Logger::log("Section mappings processing completed");
-
-        } catch (\Exception $e) {
-            Logger::log("Error in processSectionMappings: " . $e->getMessage(), "ERROR");
+        if (!empty($processedMappings)) {
+            Option::set($module_id, "SECTION_MAPPINGS", serialize($processedMappings));
         }
     }
 

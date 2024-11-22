@@ -175,22 +175,22 @@ class CacheHelper
         }
     }
 
-    public static function getCachedProperties($iblockId)
+    public static function getCachedProperties($iblockId, $propertyTypes = null, $multiple = null)
     {
         try {
-            // Logger::log("Попытка получить свойства из кэша для инфоблока: " . $iblockId);
-
             $cache = Cache::createInstance();
-            $cacheId = "properties_cache_iblock_" . $iblockId;
+
+            $propertyTypesKey = is_array($propertyTypes) ? implode('_', $propertyTypes) : 'all_types';
+            $multipleKey = is_null($multiple) ? 'both' : $multiple;
+
+            $cacheId = "properties_cache_iblock_{$iblockId}_type_{$propertyTypesKey}_multiple_{$multipleKey}";
 
             if ($cache->initCache(604800, $cacheId, self::$cacheDir)) {
                 $cachedData = $cache->getVars();
                 $properties = $cachedData['properties'] ?? [];
-                // Logger::log("Получены свойства из кэша для инфоблока: " . $iblockId . ", количество свойств: " . count($properties));
                 return $properties;
             }
 
-            // Logger::log("Свойства не найдены в кэше");
             return false;
         } catch (\Exception $e) {
             Logger::log("Ошибка в getCachedProperties: " . $e->getMessage(), "ERROR");
@@ -198,17 +198,18 @@ class CacheHelper
         }
     }
 
-    public static function saveCachedProperties($iblockId, $properties)
+    public static function saveCachedProperties($iblockId, $properties, $propertyTypes = null, $multiple = null)
     {
         try {
-            // Logger::log("Попытка сохранить свойства в кэш для инфоблока: " . $iblockId);
-
             $cache = Cache::createInstance();
-            $cacheId = "properties_cache_iblock_" . $iblockId;
+
+            $propertyTypesKey = is_array($propertyTypes) ? implode('_', $propertyTypes) : 'all_types';
+            $multipleKey = is_null($multiple) ? 'both' : $multiple;
+
+            $cacheId = "properties_cache_iblock_{$iblockId}_type_{$propertyTypesKey}_multiple_{$multipleKey}";
 
             if ($cache->startDataCache(604800, $cacheId, self::$cacheDir)) {
-                $cache->endDataCache(['properties' => $properties]); // Сохраняем с ключом 'properties'
-                // Logger::log("Свойства успешно сохранены в кэш");
+                $cache->endDataCache(['properties' => $properties]);
                 return true;
             }
 
@@ -220,25 +221,28 @@ class CacheHelper
         }
     }
 
-    public static function updatePropertiesCache($iblockId)
+    public static function updatePropertiesCache($iblockId, $propertyTypes = null, $multiple = null)
     {
         try {
-            self::clearPropertiesCache($iblockId);
-            $properties = PropertyHelper::getIblockProperties($iblockId);
-            self::saveCachedProperties($iblockId, $properties);
-            // Logger::log("Кэш свойств обновлён для инфоблока: " . $iblockId);
+            self::clearPropertiesCache($iblockId, $propertyTypes, $multiple);
+            $properties = PropertyHelper::getIblockProperties($iblockId, $propertyTypes, $multiple);
+            self::saveCachedProperties($iblockId, $properties, $propertyTypes, $multiple);
         } catch (\Exception $e) {
             Logger::log("Ошибка в updatePropertiesCache: " . $e->getMessage(), "ERROR");
         }
     }
 
-    public static function clearPropertiesCache($iblockId)
+    public static function clearPropertiesCache($iblockId, $propertyTypes = null, $multiple = null)
     {
         try {
             $cache = Cache::createInstance();
-            $cacheId = "properties_cache_iblock_" . $iblockId;
+
+            $propertyTypesKey = is_array($propertyTypes) ? implode('_', $propertyTypes) : 'all_types';
+            $multipleKey = is_null($multiple) ? 'both' : $multiple;
+
+            $cacheId = "properties_cache_iblock_{$iblockId}_type_{$propertyTypesKey}_multiple_{$multipleKey}";
+
             $cache->clean($cacheId, self::$cacheDir);
-            // Logger::log("Кэш свойств очищен для инфоблока: " . $iblockId);
         } catch (\Exception $e) {
             Logger::log("Ошибка в clearPropertiesCache: " . $e->getMessage(), "ERROR");
         }
