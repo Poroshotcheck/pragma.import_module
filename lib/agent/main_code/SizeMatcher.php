@@ -275,8 +275,7 @@ class SizeMatcher
     {
         try {
             $normalized = preg_replace('/[^a-zA-Z0-9\-\/\s]/', '', $size);
-            $normalized = strtolower($normalized);
-
+            // Убрано приведение к нижнему регистру для чувствительности к регистру
             return trim($normalized);
         } catch (\Exception $e) {
             Logger::log("Ошибка в normalizeSize(): " . $e->getMessage(), "ERROR");
@@ -288,16 +287,24 @@ class SizeMatcher
      * Извлечение части размера из названия элемента.
      *
      * @param string $str Название элемента.
-     * @return string Извлечённая часть размера.
+     * @return string|null Извлечённая часть размера.
      */
     private function extractSizePart($str)
     {
         try {
+            // Извлечение размера из скобок
+            if (preg_match('/\((.*?)\)/', $str, $matches)) {
+                return trim($matches[1]);
+            }
+
             // Попытка разделить строку по основным разделителям
             foreach ($this->mainSeparators as $separator) {
                 $parts = explode($separator, $str);
                 if (count($parts) > 1) {
-                    return trim(end($parts));
+                    $sizePart = trim(end($parts));
+                    if (!empty($sizePart) && $sizePart !== '*') {
+                        return $sizePart;
+                    }
                 }
             }
 
@@ -305,7 +312,10 @@ class SizeMatcher
             foreach ($this->additionalSeparators as $separator) {
                 $parts = explode($separator, $str);
                 if (count($parts) > 1) {
-                    return trim(implode($separator, array_slice($parts, -2)));
+                    $sizePart = trim(end($parts));
+                    if (!empty($sizePart)) { //&& is_numeric(filter_var($sizePart, FILTER_SANITIZE_NUMBER_INT))) { -- убрал эту часть так как 210T он считал за число 
+                        return $sizePart;
+                    }
                 }
             }
 
