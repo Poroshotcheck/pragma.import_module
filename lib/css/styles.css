@@ -363,7 +363,7 @@ select option:checked {
     display: flex;
     flex-wrap: nowrap;
     gap: 8px;
-    padding: 5px 0;
+    padding: 5px 5px;
     flex-direction: row;
 }
 

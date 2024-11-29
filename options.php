@@ -877,6 +877,7 @@ $tabControl->Begin();
         const container = document.getElementById('section_mappings_container');
         const index = container.children.length;
 
+        // Обновление атрибутов name для элементов
         template.querySelector('select').name = `SECTION_MAPPINGS[${index}][SECTION_ID]`;
         template.querySelectorAll('input').forEach(input => {
             input.name = `SECTION_MAPPINGS[${index}][PROPERTIES][]`;
@@ -887,6 +888,9 @@ $tabControl->Begin();
         const newSelect = container.lastElementChild.querySelector('.section-select');
         updateSectionOptions(document.getElementById('IBLOCK_ID_CATALOG').value, newSelect);
         addSearchToSelect(newSelect);
+
+        // Вызов функции для генерации свойств фильтра
+        populateProperties(index);
     }
 
     function removeMapping(button) {
@@ -1041,7 +1045,7 @@ $tabControl->Begin();
             matchesSelect.name = `IMPORT_MAPPINGS[${sectionId}][PROPERTIES][${propertyCode}][MATCHES]`;
         });
 
-        // Добавляем обработчик изменения кода свойства
+        // Добавляем обработчик изменния кода свойства
         propertyCodeSelect.addEventListener('change', function () {
             // Обновляем имя select для matches при изменении кода свойства
             matchesSelect.name = `IMPORT_MAPPINGS[${sectionId}][PROPERTIES][${this.value}][MATCHES]`;
@@ -1276,4 +1280,88 @@ $tabControl->Begin();
             toggleModeSettings();
         });
     });
+
+    // Функция для генерации HTML с чекбоксами свойств
+    function populateProperties(index) {
+        const container = document.getElementById('section_mappings_container');
+        const mapping = container.children[index];
+        if (!mapping) return;
+
+        const filterSections = mapping.querySelectorAll('.filter-properties-section .filter-properties-tabs');
+
+        const catalogTabsDiv = filterSections[0];
+        const offersTabsDiv = filterSections[1];
+
+        // Очистка существующего содержимого (на случай повторного вызова)
+        catalogTabsDiv.innerHTML = '';
+        offersTabsDiv.innerHTML = '';
+
+        // Генерация чекбоксов для свойств Каталога
+        for (const uniqueKey in allProperties['CATALOG']) {
+            const propertyData = allProperties['CATALOG'][uniqueKey];
+
+            const tabsContainer = document.createElement('div');
+            tabsContainer.className = 'tabs-container';
+
+            const tabsWrapper = document.createElement('div');
+            tabsWrapper.className = 'tabs-wrapper';
+
+            for (const enumId in propertyData['VALUES']) {
+                const enumValue = propertyData['VALUES'][enumId]['VALUE'];
+
+                const label = document.createElement('label');
+                label.className = 'tab-label';
+
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.name = `SECTION_MAPPINGS[${index}][FILTER_PROPERTIES][${uniqueKey}][]`;
+                checkbox.value = enumId;
+
+                const span = document.createElement('span');
+                span.className = 'tab-text';
+                span.textContent = enumValue;
+
+                label.appendChild(checkbox);
+                label.appendChild(span);
+                tabsWrapper.appendChild(label);
+            }
+
+            tabsContainer.appendChild(tabsWrapper);
+            catalogTabsDiv.appendChild(tabsContainer);
+        }
+
+        // Генерация чекбоксов для свойств Торговых Предложений
+        for (const uniqueKey in allProperties['OFFERS']) {
+            const propertyData = allProperties['OFFERS'][uniqueKey];
+
+            const tabsContainer = document.createElement('div');
+            tabsContainer.className = 'tabs-container';
+
+            const tabsWrapper = document.createElement('div');
+            tabsWrapper.className = 'tabs-wrapper';
+
+            for (const enumId in propertyData['VALUES']) {
+                const enumValue = propertyData['VALUES'][enumId]['VALUE'];
+
+                const label = document.createElement('label');
+                label.className = 'tab-label';
+
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.name = `SECTION_MAPPINGS[${index}][FILTER_PROPERTIES][${uniqueKey}][]`;
+                checkbox.value = enumId;
+
+                const span = document.createElement('span');
+                span.className = 'tab-text';
+                span.textContent = enumValue;
+
+                label.appendChild(checkbox);
+                label.appendChild(span);
+                tabsWrapper.appendChild(label);
+            }
+
+            tabsContainer.appendChild(tabsWrapper);
+            offersTabsDiv.appendChild(tabsContainer);
+        }
+    }
 </script>
