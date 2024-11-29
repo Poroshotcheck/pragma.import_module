@@ -114,19 +114,28 @@ class SectionTreeCreator
 
         foreach ($elements as $element) {
             try {
-                $result = $this->getTargetSectionIds($element);
-                
-                $batchData[] = [
-                    'TARGET_SECTION_ID' => $result['targetSectionIds'],
+                $targetSectionIds = $this->getTargetSectionIds($element);
+
+                // Получаем динамические поля из настроек модуля
+                $importMappings = unserialize(Option::get($moduleId, "IMPORT_MAPPINGS"));
+                $dynamicFields = [];
+                if (!empty($importMappings)) {
+                    foreach ($importMappings as $mapping) {
+                        foreach ($mapping['PROPERTIES'] as $property) {
+                            $code = $property['CODE'];
+                            $dynamicFields[$code] = $element['PROPERTY_' . $code . '_VALUE'] ?: '';
+                        }
+                    }
+                }
+
+                $batchData[] = array_merge([
+                    'TARGET_SECTION_ID' => $targetSectionIds,
                     'SOURCE_SECTION_ID' => $element['IBLOCK_SECTION_ID'],
                     'ELEMENT_ID' => $element['ID'],
                     'ELEMENT_NAME' => $element['NAME'],
                     'ELEMENT_XML_ID' => $element['XML_ID'],
-                    'CHAIN_TOGEZER' => '',
-                    'CATALOG_PROPERTIES' => $result['catalogProperties'],
-                    'OFFER_PROPERTIES' => $result['offerProperties'],
-                    'FILTER_PROPERTIES' => $result['filterProperties']
-                ];
+                    'CHAIN_TOGEZER' => ''
+                ], $dynamicFields);
 
                 $this->lastId = $element['ID'];
                 $this->totalProcessedCount++;
@@ -142,40 +151,18 @@ class SectionTreeCreator
     {
         try {
             $targetSectionIds = [];
-            $filterProperties = [];
-            $catalogProperties = [];
-            $offerProperties = [];
 
             foreach ($this->sectionMappings as $mapping) {
                 foreach ($mapping['PROPERTIES'] as $property) {
                     if (mb_stripos($element['NAME'], $property) !== false) {
                         if (!in_array($mapping['SECTION_ID'], $targetSectionIds)) {
                             $targetSectionIds[] = $mapping['SECTION_ID'];
-                            
-                            if (isset($mapping['FILTER_PROPERTIES'])) {
-                                $filterProperties = $mapping['FILTER_PROPERTIES'];
-                                
-                                foreach ($filterProperties as $code => $values) {
-                                    if (strpos($code, 'CATALOG_') === 0) {
-                                        $cleanCode = substr($code, 8);
-                                        $catalogProperties[$cleanCode] = $values;
-                                    } elseif (strpos($code, 'OFFER_') === 0) {
-                                        $cleanCode = substr($code, 6);
-                                        $offerProperties[$cleanCode] = $values;
-                                    }
-                                }
-                            }
                         }
                     }
                 }
             }
 
-            return [
-                'targetSectionIds' => $targetSectionIds,
-                'filterProperties' => $filterProperties,
-                'catalogProperties' => $catalogProperties,
-                'offerProperties' => $offerProperties
-            ];
+            return $targetSectionIds;
         } catch (\Exception $e) {
             Logger::log("Ошибка в getTargetSectionIds() для элемента с ID {$element['ID']}: " . $e->getMessage(), "ERROR");
             throw $e;
