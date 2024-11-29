@@ -45,6 +45,13 @@ class ModuleDataTable extends DataManager
                 'size' => 255,
                 'default_value' => ''
             ]),
+             // New field for FILTER_PROPERTIES
+             new TextField('CATALOG_PROPERTIES', [
+                'serialized' => true
+            ]),
+            new TextField('OFFER_PROPERTIES', [
+                'serialized' => true
+            ]),
         ];
     
 

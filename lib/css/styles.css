@@ -500,3 +500,7 @@ select option:checked {
     padding: 5px 0;
     border-bottom: 1px solid #ddd;
 }
+
+.tab-label input[type="checkbox"]{
+    display: none;
+}

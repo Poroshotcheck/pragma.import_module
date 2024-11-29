@@ -7,6 +7,13 @@ use Pragma\ImportModule\Logger;
 
 class PropertyHelper
 {
+    /**
+     * Получает свойства инфоблока с заданными типами и множественностью.
+     * @param int $iblockId ID инфоблока
+     * @param array|null $propertyTypes Типы свойств
+     * @param bool|null $multiple Множественность свойств
+     * @return array|false
+     */
     public static function getIblockProperties($iblockId, $propertyTypes = null, $multiple = null)
     {
         try {
@@ -43,6 +50,15 @@ class PropertyHelper
         }
     }
 
+    /**
+     * Генерирует HTML для опций свойств инфоблока с использованием кэша.
+     * @param int $iblockId ID инфоблока
+     * @param string|null $selectedPropertyCode Выбранный код свойства
+     * @param array|null $properties Существующие свойства
+     * @param array|null $propertyTypes Типы свойств
+     * @param bool|null $multiple Множественность свойств
+     * @return string
+     */
     public static function getPropertyOptionsHtml($iblockId, $selectedPropertyCode = null, $properties = null, $propertyTypes = null, $multiple = null)
     {
         try {
@@ -68,7 +84,7 @@ class PropertyHelper
             $html = '';
             foreach ($properties as $code => $name) {
                 $selected = ($code == $selectedPropertyCode) ? ' selected' : '';
-                $html .= '<option value="' . $code . '"' . $selected . '>' . $name . '</option>';
+                $html .= '<option value="' . htmlspecialcharsbx($code) . '"' . $selected . '>' . htmlspecialcharsbx($name) . '</option>';
             }
 
             return $html;
@@ -79,60 +95,77 @@ class PropertyHelper
         }
     }
 
+    /**
+     * Получает значения перечислений для свойства типа "Лист" с использованием кэша.
+     * @param int $iblockId ID инфоблока
+     * @param string $propertyCode Код свойства
+     * @return array|false
+     */
     public static function getPropertyEnumValues($iblockId, $propertyCode)
     {
         try {
             Loader::includeModule('iblock');
 
-            // Debug output
-            Logger::log("Getting enum values for property {$propertyCode} in iblock {$iblockId}", "DEBUG");
+            // Логирование для отладки
+            Logger::log("Получение значений перечислений для свойства {$propertyCode} в инфоблоке {$iblockId}", "DEBUG");
 
-            // Get property ID
+            // Получение ID свойства
             $propertyRes = PropertyTable::getList([
                 'filter' => ['IBLOCK_ID' => $iblockId, 'CODE' => $propertyCode],
                 'select' => ['ID', 'PROPERTY_TYPE']
             ]);
 
             if ($property = $propertyRes->fetch()) {
-                Logger::log("Found property: " . print_r($property, true), "DEBUG");
+                Logger::log("Найдено свойство: " . print_r($property, true), "DEBUG");
 
                 if ($property['PROPERTY_TYPE'] == 'L') {
                     $propertyId = $property['ID'];
 
-                    // Get enum values
-                    $enumRes = \CIBlockPropertyEnum::GetList(
-                        ['SORT' => 'ASC', 'VALUE' => 'ASC'],
-                        ['PROPERTY_ID' => $propertyId]
-                    );
+                    // Проверяем кэш на наличие значений перечислений
+                    $enumValues = CacheHelper::getCachedEnumValues($propertyId);
+                    if ($enumValues === false) {
+                        // Получение значений перечислений из базы данных
+                        $enumRes = \CIBlockPropertyEnum::GetList(
+                            ['SORT' => 'ASC', 'VALUE' => 'ASC'],
+                            ['PROPERTY_ID' => $propertyId]
+                        );
 
-                    $enumValues = [];
-                    while ($enum = $enumRes->Fetch()) {
-                        $enumValues[$enum['ID']] = [
-                            'VALUE' => $enum['VALUE'],
-                            'XML_ID' => $enum['XML_ID'],
-                        ];
+                        $enumValues = [];
+                        while ($enum = $enumRes->Fetch()) {
+                            $enumValues[$enum['ID']] = [
+                                'VALUE' => $enum['VALUE'],
+                                'XML_ID' => $enum['XML_ID'],
+                            ];
+                        }
+
+                        // Сохранение в кэш
+                        CacheHelper::saveCachedEnumValues($propertyId, $enumValues);
+                    } else {
+                        Logger::log("Значения перечислений получены из кэша для свойства ID {$propertyId}", "DEBUG");
                     }
 
-                    Logger::log("Found enum values: " . print_r($enumValues, true), "DEBUG");
+                    Logger::log("Найдено значений перечислений: " . print_r($enumValues, true), "DEBUG");
                     return $enumValues;
                 } else {
-                    Logger::log("Property {$propertyCode} is not a list property in iblock {$iblockId}", "ERROR");
+                    Logger::log("Свойство {$propertyCode} не является типом 'Лист' в инфоблоке {$iblockId}", "ERROR");
                     return false;
                 }
             } else {
-                Logger::log("Property {$propertyCode} not found in iblock {$iblockId}", "ERROR");
+                Logger::log("Свойство {$propertyCode} не найдено в инфоблоке {$iblockId}", "ERROR");
                 return false;
             }
         } catch (\Exception $e) {
-            Logger::log("Error in getPropertyEnumValues: " . $e->getMessage(), "ERROR");
+            Logger::log("Ошибка в getPropertyEnumValues: " . $e->getMessage(), "ERROR");
             return false;
         }
     }
 
     /**
-     * Получает все свойства для каталога и торговых предложений
+     * Получает все свойства для каталога и торговых предложений с использованием кэша.
      * @param int $iblockIdCatalog ID инфоблока каталога
-     * @return array Массив со свойствами каталога и ТП
+     * @param array $selectedCatalogProperties Выбранные свойства каталога
+     * @param array $selectedOffersProperties Выбранные свойства торговых предложений
+     * @return array
      */
     public static function getAllProperties($iblockIdCatalog, $selectedCatalogProperties = [], $selectedOffersProperties = [])
     {
@@ -147,10 +180,14 @@ class PropertyHelper
                 'offerProperties' => []
             ];
 
-            // Получаем свойства каталога
+            // Получаем свойства каталога с использованием кэша
             if ($iblockIdCatalog > 0) {
-                $result['catalogListProperties'] = self::getIblockProperties($iblockIdCatalog, ['L']);
-                
+                $result['catalogListProperties'] = CacheHelper::getCachedProperties($iblockIdCatalog, ['L'], null);
+                if (!$result['catalogListProperties']) {
+                    $result['catalogListProperties'] = self::getIblockProperties($iblockIdCatalog, ['L']);
+                    CacheHelper::saveCachedProperties($iblockIdCatalog, $result['catalogListProperties'], ['L'], null);
+                }
+
                 // Получаем значения для выбранных свойств каталога
                 foreach ($selectedCatalogProperties as $propertyCode) {
                     $enumValues = self::getPropertyEnumValues($iblockIdCatalog, $propertyCode);
@@ -166,11 +203,16 @@ class PropertyHelper
                 }
             }
 
-            // Получаем свойства торговых предложений
+            // Получаем свойства торговых предложений с использованием кэша
             $offersIblockId = \CCatalogSKU::GetInfoByProductIBlock($iblockIdCatalog)['IBLOCK_ID'];
             if ($offersIblockId) {
-                $result['offersListProperties'] = self::getIblockProperties($offersIblockId, ['L']);
-                
+                $result['offersListProperties'] = CacheHelper::getCachedProperties($offersIblockId, ['L'], null);
+                if (!$result['offersListProperties']) {
+                    $result['offersListProperties'] = self::getIblockProperties($offersIblockId, ['L']);
+                    CacheHelper::saveCachedProperties($offersIblockId, $result['offersListProperties'], ['L'], null);
+                }
+
+                // Получаем значения для выбранных свойств торговых предложений
                 foreach ($selectedOffersProperties as $propertyCode) {
                     $enumValues = self::getPropertyEnumValues($offersIblockId, $propertyCode);
                     if ($enumValues !== false) {
@@ -187,15 +229,15 @@ class PropertyHelper
 
             return $result;
         } catch (\Exception $e) {
-            Logger::log("Error in getAllProperties: " . $e->getMessage(), "ERROR");
+            Logger::log("Ошибка в getAllProperties: " . $e->getMessage(), "ERROR");
             return [];
         }
     }
 
     /**
-     * Получает свойства типа "Список" для каталога
+     * Получает свойства типа "Список" для каталога.
      * @param int $iblockIdCatalog ID инфоблока каталога
-     * @return array Массив свойств каталога
+     * @return array
      */
     public static function getCatalogListProperties($iblockIdCatalog)
     {
@@ -206,9 +248,9 @@ class PropertyHelper
     }
 
     /**
-     * Получает свойства типа "Список" для торговых предложений
+     * Получает свойства типа "Список" для торговых предложений.
      * @param int $iblockIdCatalog ID инфоблока каталога
-     * @return array Массив свойств торговых предложений
+     * @return array
      */
     public static function getOffersListProperties($iblockIdCatalog)
     {
@@ -221,7 +263,7 @@ class PropertyHelper
             }
             return [];
         } catch (\Exception $e) {
-            Logger::log("Error in getOffersListProperties: " . $e->getMessage(), "ERROR");
+            Logger::log("Ошибка в getOffersListProperties: " . $e->getMessage(), "ERROR");
             return [];
         }
     }

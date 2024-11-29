@@ -11,22 +11,23 @@ class CacheHelper
 {
     private static $cacheDir = "/pragma.importmodule/module_cache/";
 
+    /**
+     * Получает разделы инфоблока из кэша.
+     * @param int $iblockId ID инфоблока
+     * @return array|false
+     */
     public static function getCachedSections($iblockId)
     {
         try {
-            // Logger::log("Попытка получить разделы из кэша для инфоблока: " . $iblockId);
-
             $cache = Cache::createInstance();
             $cacheId = "sections_cache_iblock_" . $iblockId;
 
             if ($cache->initCache(604800, $cacheId, self::$cacheDir)) {
                 $cachedData = $cache->getVars();
                 $sections = $cachedData['sections'] ?? [];
-                // Logger::log("Получены разделы из кэша для инфоблока: " . $iblockId . ", количество разделов: " . count($sections));
                 return $sections;
             }
 
-            // Logger::log("Разделы не найдены в кэше");
             return false;
         } catch (\Exception $e) {
             Logger::log("Ошибка в getCachedSections: " . $e->getMessage(), "ERROR");
@@ -34,11 +35,15 @@ class CacheHelper
         }
     }
 
+    /**
+     * Сохраняет разделы инфоблока в кэш.
+     * @param int $iblockId ID инфоблока
+     * @param array $sections Разделы инфоблока
+     * @return bool
+     */
     public static function saveCachedSections($iblockId, $sections)
     {
         try {
-            // Logger::log("Попытка сохранить разделы в кэш для инфоблока: " . $iblockId);
-
             // Сортировка по LEFT_MARGIN перед сохранением
             uasort($sections, function ($a, $b) {
                 return $a['LEFT_MARGIN'] - $b['LEFT_MARGIN'];
@@ -49,7 +54,6 @@ class CacheHelper
 
             if ($cache->startDataCache(604800, $cacheId, self::$cacheDir)) {
                 $cache->endDataCache(['sections' => $sections]); // Сохраняем с ключом 'sections'
-                // Logger::log("Данные успешно сохранены в кэш");
                 return true;
             }
 
@@ -61,6 +65,10 @@ class CacheHelper
         }
     }
 
+    /**
+     * Обновляет кэш разделов инфоблока.
+     * @param int $iblockId ID инфоблока
+     */
     public static function updateSectionsCache($iblockId)
     {
         try {
@@ -77,39 +85,41 @@ class CacheHelper
             }
 
             self::saveCachedSections($iblockId, $sections);
-            // Logger::log("Кэш разделов обновлён для инфоблока: " . $iblockId);
         } catch (\Exception $e) {
             Logger::log("Ошибка в updateSectionsCache: " . $e->getMessage(), "ERROR");
         }
     }
 
+    /**
+     * Очищает кэш разделов инфоблока.
+     * @param int $iblockId ID инфоблока
+     */
     public static function clearSectionsCache($iblockId)
     {
         try {
             $cache = Cache::createInstance();
             $cacheId = "sections_cache_iblock_" . $iblockId;
             $cache->clean($cacheId, self::$cacheDir);
-            // Logger::log("Кэш разделов очищен для инфоблока: " . $iblockId);
         } catch (\Exception $e) {
             Logger::log("Ошибка в clearSectionsCache: " . $e->getMessage(), "ERROR");
         }
     }
 
+    /**
+     * Получает список инфоблоков из кэша.
+     * @return array|false
+     */
     public static function getCachedIblocks()
     {
         try {
-            // Logger::log("Попытка получить список инфоблоков из кэша");
-
             $cache = Cache::createInstance();
             $cacheId = "iblocks_cache";
 
             if ($cache->initCache(604800, $cacheId, self::$cacheDir)) {
                 $iblocks = $cache->getVars();
-                // Logger::log("Список инфоблоков получен из кэша");
                 return $iblocks;
             }
 
-            // Logger::log("Список инфоблоков не найден в кэше");
             return false;
         } catch (\Exception $e) {
             Logger::log("Ошибка в getCachedIblocks: " . $e->getMessage(), "ERROR");
@@ -117,17 +127,19 @@ class CacheHelper
         }
     }
 
+    /**
+     * Сохраняет список инфоблоков в кэш.
+     * @param array $iblocks Список инфоблоков
+     * @return bool
+     */
     public static function saveIblocksCache($iblocks)
     {
         try {
-            // Logger::log("Попытка сохранить список инфоблоков в кэш");
-
             $cache = Cache::createInstance();
             $cacheId = "iblocks_cache";
 
             if ($cache->startDataCache(604800, $cacheId, self::$cacheDir)) {
                 $cache->endDataCache($iblocks);
-                // Logger::log("Список инфоблоков сохранен в кэш");
                 return true;
             }
 
@@ -139,12 +151,12 @@ class CacheHelper
         }
     }
 
+    /**
+     * Обновляет кэш списка инфоблоков.
+     */
     public static function updateIblocksCache()
     {
         try {
-            // Logger::log("Обновление кэша инфоблоков");
-
-            // Очистка кэша перед заполнением
             self::clearIblocksCache();
 
             $iblocks = [];
@@ -157,24 +169,32 @@ class CacheHelper
             }
 
             self::saveIblocksCache($iblocks);
-            // Logger::log("Кэш инфоблоков обновлён");
         } catch (\Exception $e) {
             Logger::log("Ошибка в updateIblocksCache: " . $e->getMessage(), "ERROR");
         }
     }
 
+    /**
+     * Очищает кэш списка инфоблоков.
+     */
     public static function clearIblocksCache()
     {
         try {
             $cache = Cache::createInstance();
             $cacheId = "iblocks_cache";
             $cache->clean($cacheId, self::$cacheDir);
-            // Logger::log("Кэш инфоблоков очищен");
         } catch (\Exception $e) {
             Logger::log("Ошибка в clearIblocksCache: " . $e->getMessage(), "ERROR");
         }
     }
 
+    /**
+     * Получает свойства инфоблока из кэша.
+     * @param int $iblockId ID инфоблока
+     * @param array|null $propertyTypes Типы свойств
+     * @param bool|null $multiple Множественность свойств
+     * @return array|false
+     */
     public static function getCachedProperties($iblockId, $propertyTypes = null, $multiple = null)
     {
         try {
@@ -198,6 +218,14 @@ class CacheHelper
         }
     }
 
+    /**
+     * Сохраняет свойства инфоблока в кэш.
+     * @param int $iblockId ID инфоблока
+     * @param array $properties Свойства инфоблока
+     * @param array|null $propertyTypes Типы свойств
+     * @param bool|null $multiple Множественность свойств
+     * @return bool
+     */
     public static function saveCachedProperties($iblockId, $properties, $propertyTypes = null, $multiple = null)
     {
         try {
@@ -221,17 +249,31 @@ class CacheHelper
         }
     }
 
+    /**
+     * Обновляет кэш свойств инфоблока.
+     * @param int $iblockId ID инфоблока
+     * @param array|null $propertyTypes Типы свойств
+     * @param bool|null $multiple Множественность свойств
+     */
     public static function updatePropertiesCache($iblockId, $propertyTypes = null, $multiple = null)
     {
         try {
             self::clearPropertiesCache($iblockId, $propertyTypes, $multiple);
             $properties = PropertyHelper::getIblockProperties($iblockId, $propertyTypes, $multiple);
-            self::saveCachedProperties($iblockId, $properties, $propertyTypes, $multiple);
+            if ($properties !== false) {
+                self::saveCachedProperties($iblockId, $properties, $propertyTypes, $multiple);
+            }
         } catch (\Exception $e) {
             Logger::log("Ошибка в updatePropertiesCache: " . $e->getMessage(), "ERROR");
         }
     }
 
+    /**
+     * Очищает кэш свойств инфоблока.
+     * @param int $iblockId ID инфоблока
+     * @param array|null $propertyTypes Типы свойств
+     * @param bool|null $multiple Множественность свойств
+     */
     public static function clearPropertiesCache($iblockId, $propertyTypes = null, $multiple = null)
     {
         try {
@@ -245,6 +287,70 @@ class CacheHelper
             $cache->clean($cacheId, self::$cacheDir);
         } catch (\Exception $e) {
             Logger::log("Ошибка в clearPropertiesCache: " . $e->getMessage(), "ERROR");
+        }
+    }
+
+    /**
+     * Получает значения перечислений из кэша.
+     * @param int $propertyId ID свойства
+     * @return array|false
+     */
+    public static function getCachedEnumValues($propertyId)
+    {
+        try {
+            $cache = Cache::createInstance();
+            $cacheId = "enum_values_property_{$propertyId}";
+
+            if ($cache->initCache(604800, $cacheId, self::$cacheDir)) {
+                $cachedData = $cache->getVars();
+                $enumValues = $cachedData['enumValues'] ?? [];
+                return $enumValues;
+            }
+
+            return false;
+        } catch (\Exception $e) {
+            Logger::log("Ошибка в getCachedEnumValues: " . $e->getMessage(), "ERROR");
+            return false;
+        }
+    }
+
+    /**
+     * Сохраняет значения перечислений в кэш.
+     * @param int $propertyId ID свойства
+     * @param array $enumValues Значения перечислений
+     * @return bool
+     */
+    public static function saveCachedEnumValues($propertyId, $enumValues)
+    {
+        try {
+            $cache = Cache::createInstance();
+            $cacheId = "enum_values_property_{$propertyId}";
+
+            if ($cache->startDataCache(604800, $cacheId, self::$cacheDir)) {
+                $cache->endDataCache(['enumValues' => $enumValues]);
+                return true;
+            }
+
+            Logger::log("Ошибка сохранения enum значений в кэш", "ERROR");
+            return false;
+        } catch (\Exception $e) {
+            Logger::log("Ошибка в saveCachedEnumValues: " . $e->getMessage(), "ERROR");
+            return false;
+        }
+    }
+
+    /**
+     * Очищает кэш значений перечислений.
+     * @param int $propertyId ID свойства
+     */
+    public static function clearEnumValuesCache($propertyId)
+    {
+        try {
+            $cache = Cache::createInstance();
+            $cacheId = "enum_values_property_{$propertyId}";
+            $cache->clean($cacheId, self::$cacheDir);
+        } catch (\Exception $e) {
+            Logger::log("Ошибка в clearEnumValuesCache: " . $e->getMessage(), "ERROR");
         }
     }
 }
