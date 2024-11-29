@@ -53,22 +53,61 @@ class OptionsHelper
             $sectionId = $mapping['SECTION_ID'];
             $properties = isset($mapping['PROPERTIES']) ? array_filter($mapping['PROPERTIES']) : [];
             
-            // Process filter properties
+            // Обработка filter properties
             $filterProperties = [];
             if (isset($mapping['FILTER_PROPERTIES']) && is_array($mapping['FILTER_PROPERTIES'])) {
                 foreach ($mapping['FILTER_PROPERTIES'] as $propertyCode => $selectedValues) {
                     if (!empty($selectedValues)) {
                         $filterProperties[$propertyCode] = array_map('intval', $selectedValues);
+                        // Сортируем значения для корректного сравнения
+                        sort($filterProperties[$propertyCode]);
                     }
                 }
             }
 
-            // Check for duplicate section IDs
+            // Проверка на дубликаты
             if (isset($processedMappings[$sectionId])) {
-                $duplicatePropertiesMessage .= "Section ID: $sectionId\n";
-                continue;
+                // Проверяем, идентичны ли FILTER_PROPERTIES
+                $existingFilters = $processedMappings[$sectionId]['FILTER_PROPERTIES'];
+                $areFiltersIdentical = true;
+
+                // Проверяем каждое свойство фильтра
+                foreach ($filterProperties as $propertyCode => $values) {
+                    if (!isset($existingFilters[$propertyCode]) || 
+                        count(array_diff($values, $existingFilters[$propertyCode])) > 0 || 
+                        count(array_diff($existingFilters[$propertyCode], $values)) > 0) {
+                        $areFiltersIdentical = false;
+                        break;
+                    }
+                }
+
+                // Проверяем обратное направление (свойства, которые есть в существующем, но нет в новом)
+                foreach ($existingFilters as $propertyCode => $values) {
+                    if (!isset($filterProperties[$propertyCode])) {
+                        $areFiltersIdentical = false;
+                        break;
+                    }
+                }
+
+                if ($areFiltersIdentical) {
+                    // Объединяем PROPERTIES без дубликатов
+                    $processedMappings[$sectionId]['PROPERTIES'] = array_unique(
+                        array_merge($processedMappings[$sectionId]['PROPERTIES'], $properties)
+                    );
+                    continue;
+                } else {
+                    // Если фильтры различаются, создаем новый уникальный ключ
+                    $newKey = $sectionId . '_' . uniqid();
+                    $processedMappings[$newKey] = [
+                        'SECTION_ID' => $sectionId,
+                        'PROPERTIES' => $properties,
+                        'FILTER_PROPERTIES' => $filterProperties
+                    ];
+                    continue;
+                }
             }
 
+            // Если это первое появление секции
             $processedMappings[$sectionId] = [
                 'SECTION_ID' => $sectionId,
                 'PROPERTIES' => $properties,

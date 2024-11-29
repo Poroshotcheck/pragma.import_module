@@ -70,6 +70,8 @@ class ImportAgent
 
     public static function run($logFile = null)
     {
+
+        set_time_limit(600);
         self::initLogger($logFile);
         $startTime = microtime(true);
         Logger::log("
